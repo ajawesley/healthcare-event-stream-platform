@@ -22,7 +22,7 @@ type FakeRouter struct {
 	err    error
 }
 
-func (f *FakeRouter) Route(_ []byte) (*RoutedPayload, error) {
+func (f *FakeRouter) Route(_ json.RawMessage) (*RoutedPayload, error) {
 	if f.err != nil {
 		return nil, f.err
 	}

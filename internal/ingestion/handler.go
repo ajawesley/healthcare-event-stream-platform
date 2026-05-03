@@ -79,7 +79,7 @@ func NewHandler(opts ...HandlerOption) *Handler {
 
 	// Build router if not injected
 	if h.router == nil {
-		h.router = NewRouter(h.detector)
+		h.router = NewParserRouter(h.detector)
 	}
 
 	// Build transformation router if not injected
