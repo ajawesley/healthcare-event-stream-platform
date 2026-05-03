@@ -33,6 +33,8 @@ func (n *hl7Normalizer) Normalize(value any, meta envelope) (*CanonicalEvent, er
 		Type: safeHL7(msg.PV1, 2),
 	}
 
+	// NOTE: HL7 MSH is special: after splitting on '|', array index = HL7 field number - 1.
+	// Example: MSH-9 (Message Type) is at index 8.
 	observation := &CanonicalObservation{
 		Code:  safeHL7(msg.MSH, 8),
 		Value: nil,

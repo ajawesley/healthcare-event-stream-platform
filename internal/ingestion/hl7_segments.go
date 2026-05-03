@@ -18,6 +18,8 @@ type HL7Message struct {
 }
 
 func ParseHL7(raw string) (*HL7Message, error) {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
 	lines := strings.Split(raw, "\n")
 
 	msg := &HL7Message{}
