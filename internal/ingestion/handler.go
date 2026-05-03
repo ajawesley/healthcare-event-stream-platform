@@ -9,32 +9,66 @@ import (
 )
 
 type Handler struct {
-	router *Router
+	router   Router
+	detector Detector
+	cfg      DetectorConfig
 }
 
-func NewHandler() *Handler {
-	// 1. Try to load config from env var
-	cfgPath := os.Getenv("INGESTION_DETECTION_CONFIG")
+type HandlerOption func(*Handler)
 
-	var cfg DetectorConfig
-	var err error
+func WithConfig(cfg DetectorConfig) HandlerOption {
+	return func(h *Handler) {
+		h.cfg = cfg
+	}
+}
 
-	if cfgPath != "" {
-		cfg, err = loadDetectorConfigFromFile(cfgPath)
-		if err != nil {
-			log.Printf("failed to load detector config from %s, falling back to defaults: %v", cfgPath, err)
-			cfg = defaultDetectorConfig()
+func WithDetector(d Detector) HandlerOption {
+	return func(h *Handler) {
+		h.detector = d
+	}
+}
+
+func WithRouter(r Router) HandlerOption {
+	return func(h *Handler) {
+		h.router = r
+	}
+}
+
+func NewHandler(opts ...HandlerOption) *Handler {
+	h := &Handler{}
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	// Load config if not injected
+	if h.cfg.Rules == nil {
+		cfgPath := os.Getenv("INGESTION_DETECTION_CONFIG")
+
+		if cfgPath != "" {
+			loaded, err := loadDetectorConfigFromFile(cfgPath)
+			if err != nil {
+				log.Printf("failed to load detector config from %s, falling back to defaults: %v", cfgPath, err)
+				h.cfg = defaultDetectorConfig()
+			} else {
+				h.cfg = loaded
+			}
+		} else {
+			h.cfg = defaultDetectorConfig()
 		}
-	} else {
-		cfg = defaultDetectorConfig()
 	}
 
-	detector := NewDetector(cfg)
-	router := NewRouter(detector)
-
-	return &Handler{
-		router: router,
+	// Build detector if not injected
+	if h.detector == nil {
+		h.detector = NewDetector(h.cfg)
 	}
+
+	// Build router if not injected
+	if h.router == nil {
+		h.router = NewRouter(h.detector)
+	}
+
+	return h
 }
 
 func loadDetectorConfigFromFile(path string) (DetectorConfig, error) {
@@ -54,21 +88,9 @@ func loadDetectorConfigFromFile(path string) (DetectorConfig, error) {
 func defaultDetectorConfig() DetectorConfig {
 	return DetectorConfig{
 		Rules: []DetectionRule{
-			{
-				Name:   "hl7_msh_prefix",
-				Format: FormatHL7,
-				Prefix: "MSH|",
-			},
-			{
-				Name:   "x12_isa_prefix",
-				Format: FormatX12,
-				Prefix: "ISA*",
-			},
-			{
-				Name:        "fhir_resource_type",
-				Format:      FormatFHIR,
-				ContainsKey: "resourceType",
-			},
+			{Name: "hl7_msh_prefix", Format: FormatHL7, Prefix: "MSH|"},
+			{Name: "x12_isa_prefix", Format: FormatX12, Prefix: "ISA*"},
+			{Name: "fhir_resource_type", Format: FormatFHIR, ContainsKey: "resourceType"},
 		},
 	}
 }
@@ -105,10 +127,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate envelope
 	var env envelope
 	if err := json.Unmarshal(req.Envelope, &env); err != nil {
-		http.Error(w, "invalid envelope", http.StatusUnprocessableEntity)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "invalid_envelope_structure",
+		})
 		return
 	}
 
@@ -121,8 +145,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if env.ProducedAt == "" {
 		invalid = append(invalid, "envelope.produced_at (empty)")
-	}
-	if _, err := time.Parse(time.RFC3339, env.ProducedAt); err != nil {
+	} else if _, err := time.Parse(time.RFC3339, env.ProducedAt); err != nil {
 		invalid = append(invalid, "envelope.produced_at (invalid format, must be RFC3339)")
 	}
 	if env.SourceSystem == "" {
@@ -138,13 +161,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- NEW: validate payload presence ---
 	if len(req.Payload) == 0 {
 		http.Error(w, "missing payload", http.StatusBadRequest)
 		return
 	}
 
-	// New: detect and route payload format (MVP: we ignore the parsed value)
 	routed, err := h.router.Route(req.Payload)
 	if err != nil {
 		log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","outcome":"rejected","error":"%s"}`,
