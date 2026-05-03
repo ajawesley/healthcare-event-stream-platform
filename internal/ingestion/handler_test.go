@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
 func TestIngestHandler(t *testing.T) {
+	// Ensure tests do not depend on external config
+	os.Unsetenv("INGESTION_DETECTION_CONFIG")
+
 	h := NewHandler()
 
 	tests := []struct {
@@ -16,6 +20,9 @@ func TestIngestHandler(t *testing.T) {
 		body           string
 		wantStatusCode int
 	}{
+		// ------------------------------
+		// VALID REQUEST
+		// ------------------------------
 		{
 			name:   "valid request",
 			method: http.MethodPost,
@@ -30,14 +37,123 @@ func TestIngestHandler(t *testing.T) {
             }`,
 			wantStatusCode: http.StatusAccepted,
 		},
+
+		// ------------------------------
+		// VALID REQUEST WITH PRIMITIVE PAYLOAD
+		// ------------------------------
+		{
+			name:   "primitive payload",
+			method: http.MethodPost,
+			body: `{
+                "envelope": {
+                    "event_id": "abc",
+                    "event_type": "claims.test.created",
+                    "produced_at": "2026-05-01T14:23:00Z",
+                    "source_system": "unit-test"
+                },
+                "payload": 12345
+            }`,
+			wantStatusCode: http.StatusAccepted,
+		},
+
+		// ------------------------------
+		// INVALID METHOD
+		// ------------------------------
 		{
 			name:           "invalid method",
 			method:         http.MethodGet,
 			body:           "",
 			wantStatusCode: http.StatusMethodNotAllowed,
 		},
+
+		// ------------------------------
+		// INVALID JSON BODY
+		// ------------------------------
 		{
-			name:   "missing envelope fields",
+			name:           "invalid JSON body",
+			method:         http.MethodPost,
+			body:           `{ "envelope": "not-an-object" `,
+			wantStatusCode: http.StatusBadRequest,
+		},
+
+		// ------------------------------
+		// INVALID ENVELOPE STRUCTURE
+		// ------------------------------
+		{
+			name:   "invalid envelope structure",
+			method: http.MethodPost,
+			body: `{
+                "envelope": 123,
+                "payload": {}
+            }`,
+			wantStatusCode: http.StatusUnprocessableEntity,
+		},
+
+		// ------------------------------
+		// MISSING INDIVIDUAL FIELDS
+		// ------------------------------
+		{
+			name:   "missing event_id",
+			method: http.MethodPost,
+			body: `{
+                "envelope": {
+                    "event_id": "",
+                    "event_type": "claims.test.created",
+                    "produced_at": "2026-05-01T14:23:00Z",
+                    "source_system": "unit-test"
+                },
+                "payload": {}
+            }`,
+			wantStatusCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:   "missing event_type",
+			method: http.MethodPost,
+			body: `{
+                "envelope": {
+                    "event_id": "abc",
+                    "event_type": "",
+                    "produced_at": "2026-05-01T14:23:00Z",
+                    "source_system": "unit-test"
+                },
+                "payload": {}
+            }`,
+			wantStatusCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:   "missing produced_at",
+			method: http.MethodPost,
+			body: `{
+                "envelope": {
+                    "event_id": "abc",
+                    "event_type": "claims.test.created",
+                    "produced_at": "",
+                    "source_system": "unit-test"
+                },
+                "payload": {}
+            }`,
+			wantStatusCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:   "missing source_system",
+			method: http.MethodPost,
+			body: `{
+                "envelope": {
+                    "event_id": "abc",
+                    "event_type": "claims.test.created",
+                    "produced_at": "2026-05-01T14:23:00Z",
+                    "source_system": ""
+                },
+                "payload": {}
+            }`,
+			wantStatusCode: http.StatusUnprocessableEntity,
+		},
+
+		// ------------------------------
+		// MISSING ALL FIELDS
+		// ------------------------------
+		{
+			name:   "missing all envelope fields",
 			method: http.MethodPost,
 			body: `{
                 "envelope": {
@@ -46,21 +162,6 @@ func TestIngestHandler(t *testing.T) {
                     "produced_at": "",
                     "source_system": ""
                 },
-                "payload": {}
-            }`,
-			wantStatusCode: http.StatusUnprocessableEntity,
-		},
-		{
-			name:           "invalid JSON body",
-			method:         http.MethodPost,
-			body:           `{ "envelope": "not-an-object" `,
-			wantStatusCode: http.StatusBadRequest,
-		},
-		{
-			name:   "invalid envelope structure",
-			method: http.MethodPost,
-			body: `{
-                "envelope": 123,
                 "payload": {}
             }`,
 			wantStatusCode: http.StatusUnprocessableEntity,

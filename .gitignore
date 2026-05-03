@@ -1,0 +1,55 @@
+# -------------------------
+# Go build artifacts
+# -------------------------
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test cache
+*.test
+
+# IDE / editor noise
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -------------------------
+# Terraform
+# -------------------------
+# Local Terraform working directory
+.terraform/
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+
+# Terraform crash logs
+crash.log
+crash.*.log
+
+# Terraform lock file (should NOT be committed for modules)
+.terraform.lock.hcl
+
+# Terraform provider binaries (Windows, Linux, Darwin)
+terraform-provider-*
+*.zip
+
+# Terraform plan files
+*.tfplan
+
+# -------------------------
+# OS / system files
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# App config (local only)
+# -------------------------
+config/*.local.json
+config/*.override.json
+

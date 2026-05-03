@@ -4,13 +4,73 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
-type Handler struct{}
+type Handler struct {
+	router *Router
+}
 
 func NewHandler() *Handler {
-	return &Handler{}
+	// 1. Try to load config from env var
+	cfgPath := os.Getenv("INGESTION_DETECTION_CONFIG")
+
+	var cfg DetectorConfig
+	var err error
+
+	if cfgPath != "" {
+		cfg, err = loadDetectorConfigFromFile(cfgPath)
+		if err != nil {
+			log.Printf("failed to load detector config from %s, falling back to defaults: %v", cfgPath, err)
+			cfg = defaultDetectorConfig()
+		}
+	} else {
+		cfg = defaultDetectorConfig()
+	}
+
+	detector := NewDetector(cfg)
+	router := NewRouter(detector)
+
+	return &Handler{
+		router: router,
+	}
+}
+
+func loadDetectorConfigFromFile(path string) (DetectorConfig, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return DetectorConfig{}, err
+	}
+
+	var cfg DetectorConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return DetectorConfig{}, err
+	}
+
+	return cfg, nil
+}
+
+func defaultDetectorConfig() DetectorConfig {
+	return DetectorConfig{
+		Rules: []DetectionRule{
+			{
+				Name:   "hl7_msh_prefix",
+				Format: FormatHL7,
+				Prefix: "MSH|",
+			},
+			{
+				Name:   "x12_isa_prefix",
+				Format: FormatX12,
+				Prefix: "ISA*",
+			},
+			{
+				Name:        "fhir_resource_type",
+				Format:      FormatFHIR,
+				ContainsKey: "resourceType",
+			},
+		},
+	}
 }
 
 type ingestRequest struct {
@@ -28,6 +88,7 @@ type envelope struct {
 type ingestResponse struct {
 	EventID    string `json:"event_id"`
 	IngestedAt string `json:"ingested_at"`
+	Format     string `json:"format"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,15 +135,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// MVP: no S3 write yet — stub only
+	// New: detect and route payload format (MVP: we ignore the parsed value)
+	routed, err := h.router.Route(req.Payload)
+	if err != nil {
+		log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","outcome":"rejected","error":"%s"}`,
+			env.EventID, env.EventType, env.SourceSystem, err.Error())
+		http.Error(w, "unsupported or invalid payload", http.StatusUnprocessableEntity)
+		return
+	}
+
 	ingestedAt := time.Now().UTC().Format(time.RFC3339)
 
-	log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","ingested_at":"%s","outcome":"accepted","duration_ms":%d}`,
-		env.EventID, env.EventType, env.SourceSystem, ingestedAt, time.Since(start).Milliseconds())
+	log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","ingested_at":"%s","outcome":"accepted","format":"%s","duration_ms":%d}`,
+		env.EventID, env.EventType, env.SourceSystem, ingestedAt, routed.Format, time.Since(start).Milliseconds())
 
 	resp := ingestResponse{
 		EventID:    env.EventID,
 		IngestedAt: ingestedAt,
+		Format:     string(routed.Format),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
