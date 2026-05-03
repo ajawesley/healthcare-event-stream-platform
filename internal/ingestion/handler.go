@@ -9,10 +9,11 @@ import (
 )
 
 type Handler struct {
-	router            Router
-	detector          Detector
-	cfg               DetectorConfig
-	transformerRouter TransformationRouter
+	router              Router
+	detector            Detector
+	cfg                 DetectorConfig
+	transformerRouter   TransformationRouter
+	normalizationRouter NormalizationRouter
 }
 
 type HandlerOption func(*Handler)
@@ -32,6 +33,12 @@ func WithDetector(d Detector) HandlerOption {
 func WithRouter(r Router) HandlerOption {
 	return func(h *Handler) {
 		h.router = r
+	}
+}
+
+func WithNormalizationRouter(n NormalizationRouter) HandlerOption {
+	return func(h *Handler) {
+		h.normalizationRouter = n
 	}
 }
 
@@ -78,6 +85,11 @@ func NewHandler(opts ...HandlerOption) *Handler {
 	// Build transformation router if not injected
 	if h.transformerRouter == nil {
 		h.transformerRouter = NewTransformationRouter()
+	}
+
+	// Build normalization router if not injected
+	if h.normalizationRouter == nil {
+		h.normalizationRouter = NewNormalizationRouter()
 	}
 
 	return h
@@ -210,6 +222,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "transformation failed", http.StatusUnprocessableEntity)
 		return
 	}
+
+	// Normalization placeholder:
+	// Converts the transformed payload into a canonical event.
+	// Real normalization logic will be implemented in the next slices.
+	normalizer, err := h.normalizationRouter.NormalizerFor(routed.Format)
+	if err != nil {
+		http.Error(w, "no normalizer for format", http.StatusInternalServerError)
+		return
+	}
+
+	canonical, err := normalizer.Normalize(routed.Value, env)
+	if err != nil {
+		http.Error(w, "normalization failed", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// canonical is not yet returned in the HTTP response — that will change later.
+	_ = canonical
 
 	log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","ingested_at":"%s","outcome":"accepted","format":"%s","duration_ms":%d}`,
 		env.EventID, env.EventType, env.SourceSystem, ingestedAt, routed.Format, time.Since(start).Milliseconds())
