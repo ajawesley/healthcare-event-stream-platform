@@ -2,12 +2,20 @@ package ingestion
 
 import "fmt"
 
-type Router struct {
-	detector *Detector
+// Router defines the interface for routing payloads to the correct parser/handler.
+// This enables dependency injection and clean testing via FakeRouter.
+type Router interface {
+	Route(payload []byte) (*RoutedPayload, error)
 }
 
-func NewRouter(detector *Detector) *Router {
-	return &Router{detector: detector}
+// routerImpl is the concrete production router.
+// It delegates format detection to Detector and dispatches accordingly.
+type routerImpl struct {
+	detector Detector
+}
+
+func NewRouter(d Detector) Router {
+	return &routerImpl{detector: d}
 }
 
 type RoutedPayload struct {
@@ -15,33 +23,24 @@ type RoutedPayload struct {
 	Value  any
 }
 
-func (r *Router) Route(raw []byte) (*RoutedPayload, error) {
-	format := r.detector.Detect(raw)
+func (r *routerImpl) Route(payload []byte) (*RoutedPayload, error) {
+	format := r.detector.Detect(payload)
 
 	switch format {
 	case FormatHL7:
-		msg, err := ParseHL7(raw)
-		if err != nil {
-			return nil, fmt.Errorf("hl7_parse_error: %w", err)
-		}
-		return &RoutedPayload{Format: format, Value: msg}, nil
-	case FormatFHIR:
-		res, err := ParseFHIR(raw)
-		if err != nil {
-			return nil, fmt.Errorf("fhir_parse_error: %w", err)
-		}
-		return &RoutedPayload{Format: format, Value: res}, nil
+		return &RoutedPayload{Format: FormatHL7}, nil
+
 	case FormatX12:
-		msg, err := ParseX12(raw)
+		return &RoutedPayload{Format: FormatX12}, nil
+
+	case FormatFHIR:
+		fhir, err := ParseFHIR(payload)
 		if err != nil {
-			return nil, fmt.Errorf("x12_parse_error: %w", err)
+			return nil, fmt.Errorf("invalid FHIR payload: %w", err)
 		}
-		return &RoutedPayload{Format: format, Value: msg}, nil
+		return &RoutedPayload{Format: FormatFHIR, Value: fhir}, nil
+
 	default:
-		g, err := ParseGeneric(raw)
-		if err != nil {
-			return nil, fmt.Errorf("generic_parse_error: %w", err)
-		}
-		return &RoutedPayload{Format: FormatGeneric, Value: g}, nil
+		return &RoutedPayload{Format: FormatGeneric}, nil
 	}
 }

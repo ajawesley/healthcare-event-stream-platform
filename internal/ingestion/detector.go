@@ -14,6 +14,12 @@ const (
 	FormatGeneric Format = "generic"
 )
 
+// DetectionRule represents a single detection heuristic. Only one of
+// Prefix or ContainsKey is typically used. If both are set, Prefix is
+// evaluated first.
+//
+// Rule evaluation is short‑circuiting: the first rule whose condition
+// matches determines the detected format.
 type DetectionRule struct {
 	Name   string `json:"name"`
 	Format Format `json:"format"`
@@ -23,28 +29,46 @@ type DetectionRule struct {
 	ContainsKey string `json:"contains_key,omitempty"`
 }
 
+// DetectorConfig defines the ordered list of detection rules used to
+// determine the payload format. Rule order is significant:
+// the detector evaluates rules top‑to‑bottom and returns the first match.
+//
+// This means:
+//   - JSON config files must preserve rule ordering.
+//   - Earlier rules have higher precedence.
+//   - Misordered rules can cause incorrect detection (e.g., a generic
+//     JSON key match appearing before an HL7 prefix match).
+//
+// Example:
+//
+//	Rules: [HL7, X12, FHIR]  // HL7 checked first, then X12, then FHIR.
+//
+// When loading from a file, the order in the JSON array is used exactly
+// as provided.
 type DetectorConfig struct {
 	Rules []DetectionRule `json:"rules"`
 }
 
-type Detector struct {
+type Detector interface {
+	Detect(payload []byte) Format
+}
+
+type detectorImpl struct {
 	rules []DetectionRule
 }
 
-func NewDetector(cfg DetectorConfig) *Detector {
-	return &Detector{rules: cfg.Rules}
+func NewDetector(cfg DetectorConfig) Detector {
+	return &detectorImpl{rules: cfg.Rules}
 }
 
-func (d *Detector) Detect(payload []byte) Format {
+func (d *detectorImpl) Detect(payload []byte) Format {
 	trimmed := bytes.TrimSpace(payload)
 
 	for _, rule := range d.rules {
-		// Prefix rule (e.g., HL7, X12)
 		if rule.Prefix != "" && bytes.HasPrefix(trimmed, []byte(rule.Prefix)) {
 			return rule.Format
 		}
 
-		// JSON key rule (e.g., FHIR)
 		if rule.ContainsKey != "" && looksLikeJSONWithKey(trimmed, rule.ContainsKey) {
 			return rule.Format
 		}
@@ -61,33 +85,38 @@ func looksLikeJSONWithKey(b []byte, key string) bool {
 	return containsKeyRecursive(data, key)
 }
 
-func containsKeyRecursive(v any, key string) bool {
-	switch val := v.(type) {
+const maxJSONDepth = 10
 
+func containsKeyRecursive(v any, key string) bool {
+	return containsKeyRecursiveDepth(v, key, 0)
+}
+
+func containsKeyRecursiveDepth(v any, key string, depth int) bool {
+	if depth > maxJSONDepth {
+		return false
+	}
+
+	switch val := v.(type) {
 	case map[string]any:
-		// Check direct key
 		if _, ok := val[key]; ok {
 			return true
 		}
-		// Recurse into values
 		for _, child := range val {
-			if containsKeyRecursive(child, key) {
+			if containsKeyRecursiveDepth(child, key, depth+1) {
 				return true
 			}
 		}
 		return false
 
 	case []any:
-		// Recurse into array elements
 		for _, child := range val {
-			if containsKeyRecursive(child, key) {
+			if containsKeyRecursiveDepth(child, key, depth+1) {
 				return true
 			}
 		}
 		return false
 
 	default:
-		// Primitive type — cannot contain keys
 		return false
 	}
 }
