@@ -120,7 +120,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		invalid = append(invalid, "envelope.event_type")
 	}
 	if env.ProducedAt == "" {
-		invalid = append(invalid, "envelope.produced_at")
+		invalid = append(invalid, "envelope.produced_at (empty)")
+	}
+	if _, err := time.Parse(time.RFC3339, env.ProducedAt); err != nil {
+		invalid = append(invalid, "envelope.produced_at (invalid format, must be RFC3339)")
 	}
 	if env.SourceSystem == "" {
 		invalid = append(invalid, "envelope.source_system")
@@ -132,6 +135,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"error":  "envelope_validation_failed",
 			"fields": invalid,
 		})
+		return
+	}
+
+	// --- NEW: validate payload presence ---
+	if len(req.Payload) == 0 {
+		http.Error(w, "missing payload", http.StatusBadRequest)
 		return
 	}
 
