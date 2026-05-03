@@ -41,15 +41,14 @@ type RoutedPayload struct {
 }
 
 func (r *ParserRouter) Route(raw json.RawMessage) (*RoutedPayload, error) {
-	str := string(raw)
 
-	format := r.detector.Detect([]byte(str))
-
-	switch format {
+	switch str, format := string(raw), r.detector.Detect([]byte(raw)); format {
 	case FormatHL7:
 		return &RoutedPayload{Format: FormatHL7, Value: str}, nil
 	case FormatX12:
 		return &RoutedPayload{Format: FormatX12, Value: str}, nil
+	case FormatFHIR:
+		return &RoutedPayload{Format: FormatFHIR, Value: str}, nil
 	default:
 		return &RoutedPayload{}, fmt.Errorf("unsupported format: %s", format)
 	}
