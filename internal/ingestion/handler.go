@@ -9,9 +9,10 @@ import (
 )
 
 type Handler struct {
-	router   Router
-	detector Detector
-	cfg      DetectorConfig
+	router            Router
+	detector          Detector
+	cfg               DetectorConfig
+	transformerRouter TransformationRouter
 }
 
 type HandlerOption func(*Handler)
@@ -31,6 +32,12 @@ func WithDetector(d Detector) HandlerOption {
 func WithRouter(r Router) HandlerOption {
 	return func(h *Handler) {
 		h.router = r
+	}
+}
+
+func WithTransformationRouter(tr TransformationRouter) HandlerOption {
+	return func(h *Handler) {
+		h.transformerRouter = tr
 	}
 }
 
@@ -66,6 +73,11 @@ func NewHandler(opts ...HandlerOption) *Handler {
 	// Build router if not injected
 	if h.router == nil {
 		h.router = NewRouter(h.detector)
+	}
+
+	// Build transformation router if not injected
+	if h.transformerRouter == nil {
+		h.transformerRouter = NewTransformationRouter()
 	}
 
 	return h
@@ -175,6 +187,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ingestedAt := time.Now().UTC().Format(time.RFC3339)
+
+	// Transformation placeholder:
+	// At this stage of the ingestion pipeline, we only invoke the transformer
+	// to validate that the transformation layer is wired correctly. The actual
+	// normalization logic for HL7, X12, FHIR, and Generic formats will be added
+	// in the next ingestion slice. For now, this ensures:
+	//   - the correct transformer is selected based on detected format
+	//   - the handler exercises the transformation path end‑to‑end
+	//   - DI and error handling behave as expected
+	//
+	// Once real transformers are implemented, this block will produce canonical
+	// normalized output instead of discarding the result.
+	transformer, err := h.transformerRouter.TransformerFor(routed.Format)
+	if err != nil {
+		http.Error(w, "no transformer for format", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = transformer.Transform(routed.Value)
+	if err != nil {
+		http.Error(w, "transformation failed", http.StatusUnprocessableEntity)
+		return
+	}
 
 	log.Printf(`{"event_id":"%s","event_type":"%s","source_system":"%s","ingested_at":"%s","outcome":"accepted","format":"%s","duration_ms":%d}`,
 		env.EventID, env.EventType, env.SourceSystem, ingestedAt, routed.Format, time.Since(start).Milliseconds())
