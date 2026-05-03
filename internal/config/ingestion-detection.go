@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "name": "hl7_msh_prefix",
+      "format": "hl7",
+      "prefix": "MSH|"
+    },
+    {
+      "name": "x12_isa_prefix",
+      "format": "x12",
+      "prefix": "ISA*"
+    },
+    {
+      "name": "fhir_resource_type",
+      "format": "fhir",
+      "contains_key": "resourceType"
+    }
+  ]
+}
