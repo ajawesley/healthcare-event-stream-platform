@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ajawes/hesp/internal/ingestion"
+	"github.com/ajawes/hesp/internal/ingestion/handler"
 )
 
 type Server struct {
@@ -16,7 +16,7 @@ type Server struct {
 func New() *Server {
 	mux := http.NewServeMux()
 
-	handler := ingestion.NewHandler()
+	handler := handler.NewHandler()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

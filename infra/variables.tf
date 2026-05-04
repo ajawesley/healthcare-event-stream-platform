@@ -1,66 +1,61 @@
 variable "aws_region" {
-  type        = string
-  description = "AWS region to deploy resources into."
+  type = string
 }
 
 variable "app_name" {
-  type        = string
-  description = "Application name used for naming resources."
+  type = string
 }
 
 variable "environment" {
-  type        = string
-  description = "Deployment environment (dev, staging, prod)."
+  type = string
 }
 
 variable "owner" {
-  type        = string
-  description = "Owner tag value."
+  type = string
 }
 
 variable "cost_center" {
-  type        = string
-  description = "Cost center tag value."
+  type = string
 }
 
 variable "bucket_name" {
-  type        = string
-  description = "Name of the S3 bucket for ingest raw events."
+  type = string
 }
 
 variable "access_log_bucket_name" {
-  type        = string
-  description = "Name of the central access logs bucket."
+  type = string
 }
 
 variable "vpc_id" {
-  type        = string
-  description = "VPC ID for ALB and ECS."
+  type = string
 }
 
 variable "public_subnet_ids" {
-  type        = list(string)
-  description = "Public subnets for ALB."
+  type = list(string)
 }
 
 variable "private_subnet_ids" {
-  type        = list(string)
-  description = "Private subnets for ECS tasks."
+  type = list(string)
 }
 
 variable "container_image" {
-  type        = string
-  description = "ECS container image."
+  type = string
 }
 
 variable "desired_count" {
-  type        = number
-  description = "Desired ECS task count."
-  default     = 2
+  type = number
 }
 
-variable "tags" {
-  type        = map(string)
-  default     = {}
-  description = "Additional tags."
+variable "account_id" {
+  type = string
+}
+
+variable "enable_schedule" {
+  type    = bool
+  default = false
+}
+
+variable "schedule_expression" {
+  type    = string
+  default = "rate(1 day)"
 }
