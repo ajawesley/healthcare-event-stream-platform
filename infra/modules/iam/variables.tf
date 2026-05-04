@@ -22,6 +22,11 @@ variable "log_group_arn" {
   type = string
 }
 
+variable "scripts_bucket_arn" {
+  type        = string
+  description = "ARN of the S3 bucket containing Glue scripts and Python libraries."
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
