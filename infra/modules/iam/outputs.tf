@@ -7,3 +7,8 @@ output "execution_role_arn" {
   description = "ARN of the ECS task execution role."
   value       = aws_iam_role.execution.arn
 }
+
+output "glue_role_arn" {
+  description = "ARN of the Glue job role."
+  value       = aws_iam_role.glue.arn
+}
