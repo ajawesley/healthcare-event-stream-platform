@@ -12,14 +12,16 @@ locals {
 }
 
 ############################################
-# Lambda Function
+# Lambda Function (Custom Runtime)
 ############################################
 
 resource "aws_lambda_function" "this" {
   function_name = "${var.app_name}-${var.environment}-trigger"
   role          = var.lambda_role_arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2"
+
+  # Custom runtime uses "bootstrap" as the handler
+  handler = "bootstrap"
+  runtime = "provided.al2"
 
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
@@ -35,7 +37,7 @@ resource "aws_lambda_function" "this" {
 }
 
 ############################################
-# Allow Lambda to Start Glue Job
+# IAM Policy: Allow Lambda to Start Glue Job
 ############################################
 
 resource "aws_iam_policy" "lambda_glue_policy" {
@@ -55,8 +57,43 @@ resource "aws_iam_policy" "lambda_glue_policy" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_glue_attach" {
-  role       = split("/", var.lambda_role_arn)[1]
-  policy_arn = aws_iam_policy.lambda_glue_policy.arn
+############################################
+# IAM Policy: Allow Lambda to Write Logs
+############################################
+
+resource "aws_iam_policy" "lambda_logging_policy" {
+  name = "${var.app_name}-${var.environment}-lambda-logging"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
 }
 
+############################################
+# Attach Policies to Lambda Role
+############################################
+
+resource "aws_iam_role_policy_attachment" "lambda_glue_attach" {
+  role       = var.lambda_role_name   # FIXED: no brittle ARN splitting
+  policy_arn = aws_iam_policy.lambda_glue_policy.arn
+
+  depends_on = [aws_iam_policy.lambda_glue_policy]
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_logging_attach" {
+  role       = var.lambda_role_name
+  policy_arn = aws_iam_policy.lambda_logging_policy.arn
+
+  depends_on = [aws_iam_policy.lambda_logging_policy]
+}
