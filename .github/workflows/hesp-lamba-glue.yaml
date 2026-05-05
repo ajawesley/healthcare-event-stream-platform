@@ -31,7 +31,7 @@ jobs:
 
       - name: Build Lambda (linux/arm64)
         run: |
-          cd cmd/glue-trigger-lambda
+          cd cmd/lambda
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ${LAMBDA_BINARY}
           zip ${LAMBDA_ZIP} ${LAMBDA_BINARY}
           mv ${LAMBDA_ZIP} ../../${LAMBDA_ZIP}
