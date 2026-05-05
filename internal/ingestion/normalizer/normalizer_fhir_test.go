@@ -15,17 +15,17 @@ func TestFHIRNormalizer(t *testing.T) {
 		verify    func(t *testing.T, ne *models.NormalizedEvent)
 	}{
 		{
-			name: "Extracts resourceType and id",
+			name: "Extracts resourceType and id (namespaced)",
 			raw: `{
                 "resourceType": "Patient",
                 "id": "pat123"
             }`,
 			verify: func(t *testing.T, ne *models.NormalizedEvent) {
-				if ne.Fields["resource_type"] != "Patient" {
-					t.Fatalf("expected resource_type Patient, got %v", ne.Fields["resource_type"])
+				if ne.Fields["fhir.resource_type"] != "Patient" {
+					t.Fatalf("expected fhir.resource_type Patient, got %v", ne.Fields["fhir.resource_type"])
 				}
-				if ne.Fields["id"] != "pat123" {
-					t.Fatalf("expected id pat123, got %v", ne.Fields["id"])
+				if ne.Fields["fhir.id"] != "pat123" {
+					t.Fatalf("expected fhir.id pat123, got %v", ne.Fields["fhir.id"])
 				}
 			},
 		},
@@ -37,9 +37,38 @@ func TestFHIRNormalizer(t *testing.T) {
                 "meta": { "profile": ["x"] }
             }`,
 			verify: func(t *testing.T, ne *models.NormalizedEvent) {
-				// Your normalizer logs show: metadata is stored under "meta.profile"
 				if ne.Metadata["meta.profile"] == nil {
 					t.Fatalf("expected metadata to contain meta.profile")
+				}
+			},
+		},
+		{
+			name: "Extracts Observation code and value",
+			raw: `{
+                "resourceType": "Observation",
+                "id": "obs1",
+                "code": {
+                    "coding": [{
+                        "system": "http://loinc.org",
+                        "code": "718-7"
+                    }]
+                },
+                "valueQuantity": {
+                    "value": 13.5
+                }
+            }`,
+			verify: func(t *testing.T, ne *models.NormalizedEvent) {
+				if ne.Fields["fhir.resource_type"] != "Observation" {
+					t.Fatalf("expected fhir.resource_type Observation, got %v", ne.Fields["fhir.resource_type"])
+				}
+				if ne.Fields["fhir.id"] != "obs1" {
+					t.Fatalf("expected fhir.id obs1, got %v", ne.Fields["fhir.id"])
+				}
+				if ne.Fields["fhir.code"] != "718-7" {
+					t.Fatalf("expected fhir.code 718-7, got %v", ne.Fields["fhir.code"])
+				}
+				if ne.Fields["fhir.value"] != 13.5 {
+					t.Fatalf("expected fhir.value 13.5, got %v", ne.Fields["fhir.value"])
 				}
 			},
 		},

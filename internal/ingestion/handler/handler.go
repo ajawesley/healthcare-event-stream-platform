@@ -3,9 +3,11 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
@@ -59,10 +61,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// --- Log preview ---
 	bodyPreview := string(rawBody)
-	if len(bodyPreview) > 500 {
+	/*if len(bodyPreview) > 500 {
 		bodyPreview = bodyPreview[:500] + "...(truncated)"
-	}
-	log.Printf(`raw_body="%s"`, bodyPreview)
+	}*/
+	log.Printf(`ingest_body_preview raw_body="%s"`, strconv.Quote(bodyPreview))
 
 	// --- Decode JSON ---
 	var req api.IngestRequest
@@ -118,8 +120,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Route ---
 	canonical, err := h.router.Route(req.Payload, env)
 	if err != nil {
-		log.Printf(`ingest_rejected event_id="%s" event_type="%s" error="%v"`, env.EventID, env.EventType, err)
-		http.Error(w, "unsupported or invalid payload", http.StatusUnprocessableEntity)
+		errMsg := fmt.Sprintf(`ingest_rejected event_id="%s" event_type="%s" error="%v"`, env.EventID, env.EventType, err)
+		log.Printf(errMsg)
+		http.Error(w, "unsupported or invalid payload: "+errMsg, http.StatusUnprocessableEntity)
 		return
 	}
 
