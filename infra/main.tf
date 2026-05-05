@@ -32,6 +32,35 @@ locals {
 }
 
 ############################################
+# GitHub OIDC IAM Role (NEW)
+############################################
+
+module "github_oidc" {
+  source = "./modules/github-oidc-role"
+
+  role_name    = "github-oidc-deploy-role"
+  github_owner = "ajawesley"
+  github_repo  = "healthcare-event-stream-platform"
+  github_ref   = "*" # allow all branches
+
+  inline_policy_statements = [
+    {
+      Effect = "Allow"
+      Action = [
+        "sts:AssumeRole",
+        "lambda:*",
+        "s3:*",
+        "iam:PassRole",
+        "cloudwatch:*",
+        "logs:*",
+        "glue:*"
+      ]
+      Resource = "*"
+    }
+  ]
+}
+
+############################################
 # VPC Module
 ############################################
 
@@ -139,11 +168,11 @@ module "iam" {
 ############################################
 # ALB Security Group
 ############################################
+
 resource "aws_security_group" "alb" {
   name        = "${var.app_name}-${var.environment}-alb-sg-new"
   description = "ALB security group"
   vpc_id      = module.vpc.vpc_id
-
 
   ingress {
     from_port   = 80
@@ -161,7 +190,6 @@ resource "aws_security_group" "alb" {
 
   tags = local.common_tags
 }
-
 
 ############################################
 # ALB Module
@@ -206,7 +234,6 @@ module "ecs_service" {
   cost_center             = var.cost_center
   tags                    = local.common_tags
 }
-
 
 ############################################
 # Glue Job Module
