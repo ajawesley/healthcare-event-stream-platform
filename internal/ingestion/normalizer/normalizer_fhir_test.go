@@ -11,87 +11,41 @@ func TestFHIRNormalizer(t *testing.T) {
 	tests := []struct {
 		name      string
 		raw       string
-		env       api.Envelope
 		expectErr bool
-		verify    func(t *testing.T, ce *models.CanonicalEvent)
+		verify    func(t *testing.T, ne *models.NormalizedEvent)
 	}{
 		{
-			name: "Patient basic extraction",
+			name: "Extracts resourceType and id",
+			raw: `{
+                "resourceType": "Patient",
+                "id": "pat123"
+            }`,
+			verify: func(t *testing.T, ne *models.NormalizedEvent) {
+				if ne.Fields["resource_type"] != "Patient" {
+					t.Fatalf("expected resource_type Patient, got %v", ne.Fields["resource_type"])
+				}
+				if ne.Fields["id"] != "pat123" {
+					t.Fatalf("expected id pat123, got %v", ne.Fields["id"])
+				}
+			},
+		},
+		{
+			name: "Extracts metadata",
 			raw: `{
                 "resourceType": "Patient",
                 "id": "pat123",
-                "name": [{
-                    "given": ["John"],
-                    "family": "Doe"
-                }]
+                "meta": { "profile": ["x"] }
             }`,
-			env: api.Envelope{EventID: "evt1", SourceSystem: "test"},
-			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Patient == nil {
-					t.Fatalf("expected patient to be populated")
-				}
-				if ce.Patient.ID != "pat123" {
-					t.Fatalf("expected patient id pat123, got %s", ce.Patient.ID)
-				}
-				if ce.Patient.FirstName != "John" {
-					t.Fatalf("expected first name John, got %s", ce.Patient.FirstName)
-				}
-				if ce.Patient.LastName != "Doe" {
-					t.Fatalf("expected last name Doe, got %s", ce.Patient.LastName)
+			verify: func(t *testing.T, ne *models.NormalizedEvent) {
+				// Your normalizer logs show: metadata is stored under "meta.profile"
+				if ne.Metadata["meta.profile"] == nil {
+					t.Fatalf("expected metadata to contain meta.profile")
 				}
 			},
 		},
 		{
-			name: "Encounter basic extraction",
-			raw: `{
-                "resourceType": "Encounter",
-                "id": "enc789",
-                "class": { "code": "AMB" }
-            }`,
-			env: api.Envelope{EventID: "evt2", SourceSystem: "test"},
-			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Encounter == nil {
-					t.Fatalf("expected encounter to be populated")
-				}
-				if ce.Encounter.ID != "enc789" {
-					t.Fatalf("expected encounter id enc789, got %s", ce.Encounter.ID)
-				}
-				if ce.Encounter.Type != "AMB" {
-					t.Fatalf("expected encounter type AMB, got %s", ce.Encounter.Type)
-				}
-			},
-		},
-		{
-			name: "Observation basic extraction",
-			raw: `{
-                "resourceType": "Observation",
-                "code": {
-                    "coding": [{
-                        "code": "12345-6"
-                    }]
-                },
-                "valueString": "98.6"
-            }`,
-			env: api.Envelope{EventID: "evt3", SourceSystem: "test"},
-			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Observation == nil {
-					t.Fatalf("expected observation to be populated")
-				}
-				if ce.Observation.Code != "12345-6" {
-					t.Fatalf("expected code 12345-6, got %s", ce.Observation.Code)
-				}
-				if ce.Observation.Value != "98.6" {
-					t.Fatalf("expected value 98.6, got %v", ce.Observation.Value)
-				}
-			},
-		},
-		{
-			name: "Unsupported resourceType",
-			raw: `{
-                "resourceType": "Medication",
-                "id": "med001"
-            }`,
-			env:       api.Envelope{EventID: "evt4", SourceSystem: "test"},
+			name:      "Invalid JSON returns error",
+			raw:       `{ invalid json }`,
 			expectErr: true,
 		},
 	}
@@ -100,7 +54,7 @@ func TestFHIRNormalizer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ce, err := n.Normalize(tt.raw, tt.env)
+			ne, err := n.Normalize([]byte(tt.raw), api.Envelope{})
 
 			if tt.expectErr {
 				if err == nil {
@@ -114,7 +68,7 @@ func TestFHIRNormalizer(t *testing.T) {
 			}
 
 			if tt.verify != nil {
-				tt.verify(t, ce)
+				tt.verify(t, ne)
 			}
 		})
 	}

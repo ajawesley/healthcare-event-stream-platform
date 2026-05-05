@@ -7,62 +7,77 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-func TestHL7Normalizer_Normalize(t *testing.T) {
-	raw := `MSH|^~\&|LAB|HOSP|EHR|HOSP|202501011200||ORU^R01|123|P|2.3
-PID|1||PAT123||Doe^John
-PV1|1|I|WARD^101|||||||||||||||||ENC456`
-
-	env := api.Envelope{
-		EventID:      "evt-1",
-		SourceSystem: "test",
-	}
-
-	n := NewHL7Normalizer()
-
-	ce, err := n.Normalize(raw, env)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if ce.Patient.ID != "PAT123" {
-		t.Fatalf("expected patient ID PAT123, got %s", ce.Patient.ID)
-	}
-	if ce.Patient.FirstName != "John" {
-		t.Fatalf("expected first name John, got %s", ce.Patient.FirstName)
-	}
-	if ce.Patient.LastName != "Doe" {
-		t.Fatalf("expected last name Doe, got %s", ce.Patient.LastName)
-	}
-	if ce.Encounter.ID != "ENC456" {
-		t.Fatalf("expected encounter ID ENC456, got %s", ce.Encounter.ID)
-	}
-	if ce.Observation.Code != "ORU^R01" {
-		t.Fatalf("expected observation code ORU^R01, got %s", ce.Observation.Code)
-	}
-}
-
-func TestHL7Normalizer_MissingSegments(t *testing.T) {
+func TestHL7Normalizer(t *testing.T) {
 	tests := []struct {
-		name string
-		raw  string
-		want error
+		name      string
+		raw       []byte
+		wantErr   error
+		wantCheck func(t *testing.T, ce *models.NormalizedEvent)
 	}{
-		{"missing MSH", "PID|1||PAT123\nPV1|1|I", models.ErrHL7MissingMSH},
-		{"missing PID", "MSH|a|b\nPV1|1|I", models.ErrHL7MissingPID},
-		{"missing PV1", "MSH|a|b\nPID|1||PAT123", models.ErrHL7MissingPV1},
+		{
+			name: "success",
+			raw: []byte(`MSH|^~\&|LAB|HOSP|EHR|HOSP|202501011200||ORU^R01|123|P|2.3
+PID|1||PAT123||Doe^John
+PV1|1|I|WARD^101|||||||||||||||||ENC456`),
+			wantErr: nil,
+			wantCheck: func(t *testing.T, ce *models.NormalizedEvent) {
+				if ce.Fields["pid.id"] != "PAT123" {
+					t.Fatalf("expected patient ID PAT123, got %s", ce.Fields["pid.id"])
+				}
+				if ce.Fields["pid.first_name"] != "John" {
+					t.Fatalf("expected first name John, got %s", ce.Fields["pid.first_name"])
+				}
+				if ce.Fields["pid.last_name"] != "Doe" {
+					t.Fatalf("expected last name Doe, got %s", ce.Fields["pid.last_name"])
+				}
+				if ce.Fields["pv1.encounter_id"] != "ENC456" {
+					t.Fatalf("expected encounter ID ENC456, got %s", ce.Fields["pv1.encounter_id"])
+				}
+				if ce.Fields["msh.message_type"] != "ORU^R01" {
+					t.Fatalf("expected message type ORU^R01, got %s", ce.Fields["msh.message_type"])
+				}
+			},
+		},
+		{
+			name:    "missing MSH",
+			raw:     []byte("PID|1||PAT123\nPV1|1|I"),
+			wantErr: models.ErrHL7MissingMSH,
+		},
+		{
+			name:    "missing PID",
+			raw:     []byte("MSH|a|b\nPV1|1|I"),
+			wantErr: models.ErrHL7MissingPID,
+		},
+		{
+			name:    "missing PV1",
+			raw:     []byte("MSH|a|b\nPID|1||PAT123"),
+			wantErr: models.ErrHL7MissingPV1,
+		},
 	}
 
 	n := NewHL7Normalizer()
-	env := api.Envelope{EventID: "evt", SourceSystem: "test"}
+	env := api.Envelope{EventID: "evt-1", SourceSystem: "test"}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := n.Normalize(tt.raw, env)
-			if err == nil {
-				t.Fatalf("expected error %v, got nil", tt.want)
+			ce, err := n.Normalize(tt.raw, env)
+
+			if tt.wantErr != nil {
+				if err == nil {
+					t.Fatalf("expected error %v, got nil", tt.wantErr)
+				}
+				if err != tt.wantErr {
+					t.Fatalf("expected %v, got %v", tt.wantErr, err)
+				}
+				return
 			}
-			if err != tt.want {
-				t.Fatalf("expected %v, got %v", tt.want, err)
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantCheck != nil {
+				tt.wantCheck(t, ce)
 			}
 		})
 	}

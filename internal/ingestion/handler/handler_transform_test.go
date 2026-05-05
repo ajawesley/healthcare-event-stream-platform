@@ -9,50 +9,39 @@ import (
 	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/detector"
-	"github.com/ajawes/hesp/internal/ingestion/transformer"
+	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-type FakeTransformer struct {
-	called bool
-	err    error
+type FakeRouter struct {
+	calledPayload []byte
+	calledEnv     api.Envelope
+	resp          *models.CanonicalEvent
+	err           error
 }
 
-func (f *FakeTransformer) Transform(value any) (any, error) {
-	f.called = true
-	return value, f.err
+func (f *FakeRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	f.calledPayload = raw
+	f.calledEnv = env
+	return f.resp, f.err
 }
 
-type FakeTransformationRouter struct {
-	transformer transformer.Transformer
-	err         error
-}
+func TestHandler_RoutesAndReturns202(t *testing.T) {
 
-func (r *FakeTransformationRouter) TransformerFor(format detector.Format) (transformer.Transformer, error) {
-	if r.err != nil {
-		return nil, r.err
+	fake := &FakeRouter{
+		resp: &models.CanonicalEvent{
+			Format: "generic",
+		},
 	}
-	return r.transformer, nil
-}
-
-func TestHandler_TransformationPath(t *testing.T) {
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	fakeTransformer := &FakeTransformer{}
-	fakeRouter := &FakeTransformationRouter{transformer: fakeTransformer}
 
 	h := NewHandler(
-		WithConfig(minimalConfig()),
-		WithRouter(&FakeRouter{format: detector.FormatGeneric}),
-		WithDetector(&FakeDetector{format: detector.FormatGeneric}),
-		WithTransformationRouter(fakeRouter),
+		WithRouter(fake),
 	)
 
 	body := map[string]any{
 		"envelope": mustJSONMarshal(api.Envelope{
 			EventID:      "evt-1",
 			EventType:    "ingest.test",
-			ProducedAt:   now,
+			ProducedAt:   time.Now().UTC(),
 			SourceSystem: "test",
 		}),
 		"payload": json.RawMessage(`"x"`),
@@ -64,10 +53,32 @@ func TestHandler_TransformationPath(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
+	// --- Assert status ---
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", rec.Code)
 	}
-	if !fakeTransformer.called {
-		t.Fatalf("expected transformer to be called")
+
+	// --- Assert router was called ---
+	if string(fake.calledPayload) != `"x"` {
+		t.Fatalf("expected payload \"x\", got %s", string(fake.calledPayload))
+	}
+	if fake.calledEnv.EventID != "evt-1" {
+		t.Fatalf("expected envelope event_id evt-1, got %s", fake.calledEnv.EventID)
+	}
+
+	// --- Assert response body ---
+	var resp api.IngestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+
+	if resp.EventID != "evt-1" {
+		t.Fatalf("expected EventID evt-1, got %s", resp.EventID)
+	}
+	if resp.Format != "generic" {
+		t.Fatalf("expected Format generic, got %s", resp.Format)
+	}
+	if resp.IngestedAt == "" {
+		t.Fatalf("expected IngestedAt to be set")
 	}
 }

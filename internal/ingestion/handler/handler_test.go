@@ -3,44 +3,35 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/detector"
-	"github.com/ajawes/hesp/internal/ingestion/router"
+	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-type FakeDetector struct {
-	format detector.Format
+type CanonicalFakeRouter struct {
+	Canonical *models.CanonicalEvent
+	Err       error
 }
 
-func (f *FakeDetector) Detect(_ []byte) detector.Format {
-	return f.format
-}
-
-type FakeRouter struct {
-	format detector.Format
-	err    error
-}
-
-func (f *FakeRouter) Route(_ json.RawMessage) (*router.RoutedPayload, error) {
-	if f.err != nil {
-		return nil, f.err
+func (f *CanonicalFakeRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	if f.Err != nil {
+		return nil, f.Err
 	}
-	return &router.RoutedPayload{Format: f.format}, nil
+	return f.Canonical, nil
 }
 
 func TestHandler_TableDriven(t *testing.T) {
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	tests := []struct {
 		name           string
 		body           map[string]any
-		router         router.Router
-		detector       detector.Detector
+		router         *CanonicalFakeRouter
 		expectedStatus int
 	}{
 		{
@@ -49,12 +40,11 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   now,
+					ProducedAt:   time.Now().UTC(),
 					SourceSystem: "test",
 				}),
 			},
-			router:         &FakeRouter{format: detector.FormatGeneric},
-			detector:       &FakeDetector{format: detector.FormatGeneric},
+			router:         &CanonicalFakeRouter{},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
@@ -63,13 +53,12 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   "not-a-timestamp",
+					ProducedAt:   time.Time{}, // invalid time
 					SourceSystem: "test",
 				}),
 				"payload": json.RawMessage(`"x"`),
 			},
-			router:         &FakeRouter{format: detector.FormatGeneric},
-			detector:       &FakeDetector{format: detector.FormatGeneric},
+			router:         &CanonicalFakeRouter{},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
@@ -78,8 +67,21 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": 123,
 				"payload":  json.RawMessage(`"x"`),
 			},
-			router:         &FakeRouter{format: detector.FormatGeneric},
-			detector:       &FakeDetector{format: detector.FormatGeneric},
+			router:         &CanonicalFakeRouter{},
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "router failure",
+			body: map[string]any{
+				"envelope": mustJSONMarshal(api.Envelope{
+					EventID:      "evt-1",
+					EventType:    "ingest.test",
+					ProducedAt:   time.Time{}, // invalid time to trigger envelope validation failure
+					SourceSystem: "test",
+				}),
+				"payload": json.RawMessage(`"x"`),
+			},
+			router:         &CanonicalFakeRouter{Err: errors.New("router failed")},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
@@ -88,13 +90,18 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   now,
+					ProducedAt:   time.Now().UTC(),
 					SourceSystem: "test",
 				}),
 				"payload": json.RawMessage(`"x"`),
 			},
-			router:         &FakeRouter{format: detector.FormatGeneric},
-			detector:       &FakeDetector{format: detector.FormatGeneric},
+			router: &CanonicalFakeRouter{
+				Canonical: &models.CanonicalEvent{
+					EventID:      "evt-1",
+					SourceSystem: "test",
+					Format:       config.FormatGeneric,
+				},
+			},
 			expectedStatus: http.StatusAccepted,
 		},
 	}
@@ -102,9 +109,7 @@ func TestHandler_TableDriven(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewHandler(
-				WithConfig(minimalConfig()),
 				WithRouter(tt.router),
-				WithDetector(tt.detector),
 			)
 
 			b, _ := json.Marshal(tt.body)
@@ -123,12 +128,4 @@ func TestHandler_TableDriven(t *testing.T) {
 func mustJSONMarshal(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
-}
-
-func minimalConfig() detector.DetectorConfig {
-	return detector.DetectorConfig{
-		Rules: []detector.DetectionRule{
-			{Name: "generic", Format: detector.FormatGeneric},
-		},
-	}
 }
