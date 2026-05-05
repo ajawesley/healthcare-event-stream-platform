@@ -14,6 +14,10 @@ variable "cost_center" {
   type = string
 }
 
+variable "tags" {
+  type = map(string)
+}
+
 variable "glue_role_arn" {
   type = string
 }
@@ -30,8 +34,8 @@ variable "log_group_name" {
   type = string
 }
 
-variable "tags" {
-  type    = map(string)
-  default = {}
+variable "kms_key_arn" {
+  type      = string
+  default   = null
+  nullable  = true
 }
-

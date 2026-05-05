@@ -14,6 +14,10 @@ variable "cost_center" {
   type = string
 }
 
+variable "tags" {
+  type = map(string)
+}
+
 variable "glue_job_name" {
   type = string
 }
@@ -30,13 +34,10 @@ variable "lambda_role_arn" {
   type = string
 }
 
+variable "lambda_role_name" {
+  type = string
+}
+
 variable "lambda_zip_path" {
   type = string
-  description = "Path to the built lambda.zip file"
 }
-
-variable "tags" {
-  type    = map(string)
-  default = {}
-}
-

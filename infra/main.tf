@@ -251,16 +251,17 @@ EOF
 module "lambda_trigger" {
   source = "./modules/lambda_trigger"
 
-  app_name        = var.app_name
-  environment     = var.environment
-  owner           = var.owner
-  cost_center     = var.cost_center
-  glue_job_name   = module.glue_job.glue_job_name
-  glue_job_arn    = module.glue_job.glue_job_arn
-  raw_bucket_name = module.s3.bucket_name
-  lambda_role_arn = module.iam.lambda_role_arn
-  lambda_zip_path = "${path.module}/../cmd/lambda/lambda.zip"
-  tags            = local.common_tags
+  app_name         = var.app_name
+  environment      = var.environment
+  owner            = var.owner
+  cost_center      = var.cost_center
+  glue_job_name    = module.glue_job.glue_job_name
+  glue_job_arn     = module.glue_job.glue_job_arn
+  raw_bucket_name  = module.s3.bucket_name
+  lambda_role_arn  = module.iam.lambda_role_arn
+  lambda_role_name = module.iam.lambda_role_name
+  lambda_zip_path  = "${path.module}/../cmd/lambda/lambda.zip"
+  tags             = local.common_tags
 
   depends_on = [null_resource.build_lambda]
 }
@@ -283,35 +284,11 @@ resource "aws_s3_bucket_notification" "raw_events_trigger" {
   lambda_function {
     lambda_function_arn = module.lambda_trigger.lambda_arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "input/"
+    filter_prefix       = "events/"
   }
 
   depends_on = [
     module.lambda_trigger,
     aws_lambda_permission.s3_invoke
   ]
-}
-
-############################################
-# Outputs
-############################################
-
-output "alb_dns_name" {
-  value = module.alb.alb_dns_name
-}
-
-output "ecs_service_id" {
-  value = module.ecs_service.service_id
-}
-
-output "s3_bucket_name" {
-  value = module.s3.bucket_name
-}
-
-output "glue_job_name" {
-  value = module.glue_job.glue_job_name
-}
-
-output "lambda_trigger_name" {
-  value = module.lambda_trigger.lambda_name
 }
