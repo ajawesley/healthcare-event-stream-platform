@@ -1,6 +1,6 @@
 package pipeline
 
-import "bytes"
+import "strings"
 
 // PreSanitize removes framing artifacts that interfere with detection and parsing.
 // It does NOT perform format-specific normalization.
@@ -9,23 +9,53 @@ func PreSanitize(payload []byte) []byte {
 		return nil
 	}
 
-	// 1. Remove framing quotes and whitespace
-	clean := bytes.Trim(payload, "\" \t\r\n")
+	s := string(payload)
 
-	// 2. Convert literal '\' 'r' into actual CR (Unicode U+000D)
-	//    This is CRITICAL for HL7 segment splitting.
-	//    The literal bytes are: 0x5C 0x72  →  '\' 'r'
-	clean = bytes.ReplaceAll(clean, []byte{'\\', 'r'}, []byte{'\r'})
+	// 1. Trim framing quotes + whitespace
+	s = strings.Trim(s, "\" \t\r\n")
 
-	// 3. Normalize CRLF → CR
-	clean = bytes.ReplaceAll(clean, []byte("\r\n"), []byte("\r"))
+	// -------------------------
+	// HL7: CR handling
+	// -------------------------
 
-	// 4. Normalize LF-only → CR
-	clean = bytes.ReplaceAll(clean, []byte("\n"), []byte("\r"))
+	// Reduce quadruple-escaped CR → double-escaped CR
+	// "\\\\r" → "\\r"
+	s = strings.ReplaceAll(s, `\\\\r`, `\\r`)
 
-	// 5. Remove UTF‑8 BOM if present
-	bom := []byte{0xEF, 0xBB, 0xBF}
-	clean = bytes.TrimPrefix(clean, bom)
+	// Reduce double-escaped CR → single-escaped CR
+	// "\\r" → "\r"
+	s = strings.ReplaceAll(s, `\\r`, `\r`)
 
-	return clean
+	// Convert literal "\r" → real CR
+	s = strings.ReplaceAll(s, `\r`, "\r")
+
+	// -------------------------
+	// X12: LF handling
+	// -------------------------
+
+	// Reduce quadruple-escaped LF → double-escaped LF
+	// "\\\\n" → "\\n"
+	s = strings.ReplaceAll(s, `\\\\n`, `\\n`)
+
+	// Reduce double-escaped LF → single-escaped LF
+	// "\\n" → "\n"
+	s = strings.ReplaceAll(s, `\\n`, `\n`)
+
+	// Convert literal "\n" → real LF
+	s = strings.ReplaceAll(s, `\n`, "\n")
+
+	// -------------------------
+	// Normalize line endings
+	// -------------------------
+
+	// Normalize CRLF → CR
+	s = strings.ReplaceAll(s, "\r\n", "\r")
+
+	// Normalize LF-only → CR (X12 does not use LF)
+	s = strings.ReplaceAll(s, "\n", "\r")
+
+	// 7. Remove UTF‑8 BOM if present
+	s = strings.TrimPrefix(s, "\uFEFF")
+
+	return []byte(s)
 }

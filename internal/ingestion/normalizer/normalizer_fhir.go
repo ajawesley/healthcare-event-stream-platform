@@ -22,7 +22,7 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 		"event_id", env.EventID,
 	)
 
-	logger.Info("starting FHIR normalization")
+	logger.Info("starting FHIR normalization: field extraction and mapping")
 
 	var fhir map[string]any
 	if err := json.Unmarshal(raw, &fhir); err != nil {
@@ -40,9 +40,33 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 
 	ne := models.NewNormalizedEvent(config.FormatFHIR, raw)
 
-	// Fields
-	ne.Fields["resource_type"] = resourceType
-	ne.Fields["id"] = id
+	// REQUIRED NAMESPACED FIELDS
+	ne.Fields["fhir.resource_type"] = resourceType
+	ne.Fields["fhir.id"] = id
+
+	// -------------------------
+	// Observation extraction
+	// -------------------------
+	if resourceType == "Observation" {
+
+		// code.coding[0].code
+		if codeObj, ok := fhir["code"].(map[string]any); ok {
+			if codingArr, ok := codeObj["coding"].([]any); ok && len(codingArr) > 0 {
+				if coding, ok := codingArr[0].(map[string]any); ok {
+					if code, ok := coding["code"].(string); ok {
+						ne.Fields["fhir.code"] = code
+					}
+				}
+			}
+		}
+
+		// valueQuantity.value
+		if vq, ok := fhir["valueQuantity"].(map[string]any); ok {
+			if val, ok := vq["value"]; ok {
+				ne.Fields["fhir.value"] = val
+			}
+		}
+	}
 
 	// Metadata: meta.profile → meta.profile
 	if meta, ok := fhir["meta"].(map[string]any); ok {
@@ -51,6 +75,9 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 		}
 	}
 
-	logger.Info("FHIR normalization complete")
+	logger.Info("FHIR normalization complete",
+		"fields", ne.Fields,
+	)
+
 	return ne, nil
 }
