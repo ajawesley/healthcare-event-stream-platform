@@ -34,9 +34,21 @@ variable "s3_bucket_name" {
   type = string
 }
 
+variable "kms_key_arn" {
+  type = string
+}
+
+variable "s3_prefix" {
+  type    = string
+  default = "events"
+}
+
+variable "log_group_name" {
+  type = string
+}
+
 variable "desired_count" {
-  type    = number
-  default = 2
+  type = number
 }
 
 variable "target_group_arn" {
@@ -51,12 +63,6 @@ variable "cost_center" {
   type = string
 }
 
-variable "log_group_name" {
-  type        = string
-  description = "Name of the CloudWatch log group for ECS task logs."
-}
-
 variable "tags" {
-  type    = map(string)
-  default = {}
+  type = map(string)
 }

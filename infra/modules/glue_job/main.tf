@@ -1,17 +1,14 @@
-############################################
-# Glue Job Module
-############################################
-
 locals {
-  required_tags = {
-    App         = var.app_name
-    Environment = var.environment
-    Owner       = var.owner
-    CostCenter  = var.cost_center
-    ManagedBy   = "terraform"
-  }
-
-  tags = merge(var.tags, local.required_tags)
+  base_tags = merge(
+    var.tags,
+    {
+      App         = var.app_name
+      Environment = var.environment
+      Owner       = var.owner
+      CostCenter  = var.cost_center
+      ManagedBy   = "terraform"
+    }
+  )
 }
 
 ############################################
@@ -19,13 +16,8 @@ locals {
 ############################################
 
 resource "aws_glue_job" "this" {
-  name         = "${var.app_name}-${var.environment}-ingest"
-  role_arn     = var.glue_role_arn
-  glue_version = "4.0"
-
-  # Allow scaling per environment
-  number_of_workers = var.number_of_workers
-  worker_type       = var.worker_type
+  name     = "${var.app_name}-${var.environment}-job"
+  role_arn = var.glue_role_arn
 
   command {
     name            = "glueetl"
@@ -34,33 +26,16 @@ resource "aws_glue_job" "this" {
   }
 
   default_arguments = {
+    "--TempDir"                  = var.temp_dir
     "--enable-continuous-cloudwatch-log" = "true"
     "--continuous-log-logGroup"          = var.log_group_name
-    "--enable-metrics"                   = "true"
-    "--job-language"                     = "python"
-    "--TempDir"                          = var.temp_dir
-
-    # Critical: load helper modules
-    "--extra-py-files" = join(",", var.extra_py_files)
   }
 
-  execution_property {
-    max_concurrent_runs = 1
-  }
+  glue_version       = "4.0"
+  number_of_workers  = 2
+  worker_type        = "G.1X"
+  timeout            = 60
 
-  timeout = var.timeout_minutes
-
-  tags = local.tags
+  tags = local.base_tags
 }
 
-############################################
-# Outputs
-############################################
-
-output "glue_job_name" {
-  value = aws_glue_job.this.name
-}
-
-output "glue_job_arn" {
-  value = aws_glue_job.this.arn
-}

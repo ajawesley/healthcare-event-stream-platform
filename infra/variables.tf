@@ -26,36 +26,19 @@ variable "access_log_bucket_name" {
   type = string
 }
 
-variable "vpc_id" {
-  type = string
-}
-
-variable "public_subnet_ids" {
-  type = list(string)
-}
-
-variable "private_subnet_ids" {
-  type = list(string)
-}
-
 variable "container_image" {
   type = string
 }
 
 variable "desired_count" {
-  type = number
+  type    = number
+  default = 1
 }
 
-variable "account_id" {
+variable "glue_script_s3_path" {
   type = string
 }
 
-variable "enable_schedule" {
-  type    = bool
-  default = false
-}
-
-variable "schedule_expression" {
-  type    = string
-  default = "rate(1 day)"
+variable "glue_temp_dir" {
+  type = string
 }

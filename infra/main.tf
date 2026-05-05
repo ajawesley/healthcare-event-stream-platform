@@ -23,17 +23,37 @@ provider "aws" {
 
 locals {
   common_tags = {
-    App                 = var.app_name
-    Environment         = var.environment
-    Owner               = var.owner
-    CostCenter          = var.cost_center
-    ManagedBy           = "terraform"
-    DataClassification  = "phi"
+    App         = var.app_name
+    Environment = var.environment
+    Owner       = var.owner
+    CostCenter  = var.cost_center
+    ManagedBy   = "terraform"
   }
 }
 
 ############################################
-# Central Access Logs Bucket
+# VPC Module
+############################################
+
+module "vpc" {
+  source = "./modules/vpc"
+
+  name       = "${var.app_name}-${var.environment}"
+  region     = var.aws_region
+  vpc_cidr   = "10.0.0.0/16"
+  primary_az = "us-east-1a"
+
+  azs = {
+    "us-east-1a" = { index = 0 }
+    "us-east-1b" = { index = 1 }
+    "us-east-1c" = { index = 2 }
+  }
+
+  tags = local.common_tags
+}
+
+############################################
+# Access Logs Bucket (ALB)
 ############################################
 
 resource "aws_s3_bucket" "access_logs" {
@@ -41,31 +61,12 @@ resource "aws_s3_bucket" "access_logs" {
   tags   = local.common_tags
 }
 
-resource "aws_s3_bucket_policy" "access_logs" {
-  bucket = aws_s3_bucket.access_logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AWSALBAccessLogs"
-        Effect = "Allow"
-        Principal = {
-          Service = "logdelivery.elasticloadbalancing.amazonaws.com"
-        }
-        Action   = ["s3:PutObject"]
-        Resource = "${aws_s3_bucket.access_logs.arn}/*"
-      }
-    ]
-  })
-}
-
 ############################################
 # CloudWatch Log Group (ECS)
 ############################################
 
-resource "aws_cloudwatch_log_group" "ingest" {
-  name              = "/hesp/${var.environment}/ingest"
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/${var.app_name}/${var.environment}/ecs"
   retention_in_days = 30
   tags              = local.common_tags
 }
@@ -84,16 +85,15 @@ resource "aws_ecs_cluster" "cluster" {
 ############################################
 
 resource "aws_security_group" "ecs" {
-  name        = "${var.app_name}-ecs-sg"
-  description = "Security group for ECS ingest tasks"
-  vpc_id      = var.vpc_id
+  name        = "${var.app_name}-${var.environment}-ecs-sg"
+  description = "Security group for ECS tasks"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
-    security_groups = [module.alb.alb_security_group_id]
-    description     = "Allow ALB to reach ECS tasks on port 8080"
+    security_groups = [aws_security_group.alb.id]
   }
 
   egress {
@@ -107,39 +107,61 @@ resource "aws_security_group" "ecs" {
 }
 
 ############################################
-# Raw Events Bucket (S3 Module)
+# S3 Module (Raw Bucket)
 ############################################
 
 module "s3" {
   source = "./modules/s3"
 
-  bucket_name          = var.bucket_name
-  environment          = var.environment
-  owner                = var.owner
-  cost_center          = var.cost_center
-  ingest_task_role_arn = module.iam.task_role_arn
-  access_log_bucket_id = aws_s3_bucket.access_logs.id
-
-  tags = local.common_tags
+  bucket_name = var.bucket_name
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+  tags        = local.common_tags
 }
 
 ############################################
-# IAM Module (ECS + Glue Roles)
+# IAM Module
 ############################################
 
 module "iam" {
   source = "./modules/iam"
 
-  environment        = var.environment
-  owner              = var.owner
-  cost_center        = var.cost_center
-  bucket_arn         = module.s3.bucket_arn
-  kms_key_arn        = module.s3.kms_key_arn
-  log_group_arn      = aws_cloudwatch_log_group.ingest.arn
-  scripts_bucket_arn = module.glue_scripts_bucket.bucket_arn
+  environment   = var.environment
+  owner         = var.owner
+  cost_center   = var.cost_center
+  bucket_arn    = module.s3.bucket_arn
+  kms_key_arn   = module.s3.kms_key_arn
+  log_group_arn = aws_cloudwatch_log_group.ecs.arn
+  tags          = local.common_tags
+}
+
+############################################
+# ALB Security Group
+############################################
+resource "aws_security_group" "alb" {
+  name        = "${var.app_name}-${var.environment}-alb-sg-new"
+  description = "ALB security group"
+  vpc_id      = module.vpc.vpc_id
+
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = local.common_tags
 }
+
 
 ############################################
 # ALB Module
@@ -150,14 +172,13 @@ module "alb" {
 
   app_name              = var.app_name
   environment           = var.environment
-  vpc_id                = var.vpc_id
-  subnet_ids            = var.public_subnet_ids
-  ecs_security_group_id = aws_security_group.ecs.id
-  access_log_bucket_id  = aws_s3_bucket.access_logs.id
-  owner                 = var.owner
-  cost_center           = var.cost_center
+  vpc_id                = module.vpc.vpc_id
+  subnet_ids            = module.vpc.public_subnets
+  alb_security_group_id = aws_security_group.alb.id
 
-  tags = local.common_tags
+  owner       = var.owner
+  cost_center = var.cost_center
+  tags        = local.common_tags
 }
 
 ############################################
@@ -173,51 +194,19 @@ module "ecs_service" {
   container_image         = var.container_image
   task_execution_role_arn = module.iam.execution_role_arn
   task_role_arn           = module.iam.task_role_arn
-  subnet_ids              = var.private_subnet_ids
+  subnet_ids              = module.vpc.private_subnets
   security_group_ids      = [aws_security_group.ecs.id]
   s3_bucket_name          = module.s3.bucket_name
-  log_group_name          = aws_cloudwatch_log_group.ingest.name
+  kms_key_arn             = module.s3.kms_key_arn
+  s3_prefix               = "events"
+  log_group_name          = aws_cloudwatch_log_group.ecs.name
   desired_count           = var.desired_count
   target_group_arn        = module.alb.target_group_arn
   owner                   = var.owner
   cost_center             = var.cost_center
-
-  tags = local.common_tags
+  tags                    = local.common_tags
 }
 
-############################################
-# Glue Scripts Bucket
-############################################
-
-module "glue_scripts_bucket" {
-  source = "./modules/s3_bucket"
-
-  bucket_name = "${var.app_name}-${var.environment}-glue-scripts"
-  environment = var.environment
-  owner       = var.owner
-  cost_center = var.cost_center
-  tags        = local.common_tags
-}
-
-############################################
-# Upload Glue Job Script + Python Libraries
-############################################
-
-resource "aws_s3_object" "glue_main_script" {
-  bucket = module.glue_scripts_bucket.bucket_name
-  key    = "scripts/glue_job.py"
-  source = "${path.module}/glue/job/glue_job.py"
-  etag   = filemd5("${path.module}/glue/job/glue_job.py")
-}
-
-resource "aws_s3_object" "glue_libs" {
-  for_each = fileset("${path.module}/glue/job", "*.py")
-
-  bucket = module.glue_scripts_bucket.bucket_name
-  key    = "scripts/lib/${each.value}"
-  source = "${path.module}/glue/job/${each.value}"
-  etag   = filemd5("${path.module}/glue/job/${each.value}")
-}
 
 ############################################
 # Glue Job Module
@@ -226,28 +215,15 @@ resource "aws_s3_object" "glue_libs" {
 module "glue_job" {
   source = "./modules/glue_job"
 
-  app_name        = var.app_name
-  environment     = var.environment
-  owner           = var.owner
-  cost_center     = var.cost_center
-  glue_role_arn   = module.iam.glue_role_arn
-  script_s3_path  = "s3://${module.glue_scripts_bucket.bucket_name}/scripts/glue_job.py"
-  temp_dir        = "s3://${module.glue_scripts_bucket.bucket_name}/tmp/"
-  log_group_name  = "/aws/glue/${var.app_name}-${var.environment}"
-
-  extra_py_files = [
-    "s3://${module.glue_scripts_bucket.bucket_name}/scripts/lib/canonical_event_schema.py",
-    "s3://${module.glue_scripts_bucket.bucket_name}/scripts/lib/partitioner.py",
-    "s3://${module.glue_scripts_bucket.bucket_name}/scripts/lib/writer.py",
-    "s3://${module.glue_scripts_bucket.bucket_name}/scripts/lib/error_writer.py",
-    "s3://${module.glue_scripts_bucket.bucket_name}/scripts/lib/metrics.py"
-  ]
-
-  number_of_workers = 2
-  worker_type       = "G.1X"
-  timeout_minutes   = 120
-
-  tags = local.common_tags
+  app_name       = var.app_name
+  environment    = var.environment
+  owner          = var.owner
+  cost_center    = var.cost_center
+  glue_role_arn  = module.iam.glue_role_arn
+  script_s3_path = var.glue_script_s3_path
+  temp_dir       = var.glue_temp_dir
+  log_group_name = "/aws/glue/${var.app_name}-${var.environment}"
+  tags           = local.common_tags
 }
 
 ############################################
@@ -256,12 +232,12 @@ module "glue_job" {
 
 resource "null_resource" "build_lambda" {
   triggers = {
-    src_hash = filemd5("${path.module}/lambda/main.go")
+    src_hash = filemd5("${path.module}/../cmd/lambda/main.go")
   }
 
   provisioner "local-exec" {
     command = <<EOF
-cd lambda
+cd ../cmd/lambda
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap main.go
 zip lambda.zip bootstrap
 EOF
@@ -275,24 +251,22 @@ EOF
 module "lambda_trigger" {
   source = "./modules/lambda_trigger"
 
-  app_name         = var.app_name
-  environment      = var.environment
-  owner            = var.owner
-  cost_center      = var.cost_center
-  glue_job_name    = module.glue_job.glue_job_name
-  glue_job_arn     = module.glue_job.glue_job_arn
-  raw_bucket_name  = module.s3.bucket_name
-  lambda_source_dir = "${path.module}/lambda"
-  account_id       = var.account_id
-  enable_dlq       = true
-
-  tags = local.common_tags
+  app_name        = var.app_name
+  environment     = var.environment
+  owner           = var.owner
+  cost_center     = var.cost_center
+  glue_job_name   = module.glue_job.glue_job_name
+  glue_job_arn    = module.glue_job.glue_job_arn
+  raw_bucket_name = module.s3.bucket_name
+  lambda_role_arn = module.iam.lambda_role_arn
+  lambda_zip_path = "${path.module}/../cmd/lambda/lambda.zip"
+  tags            = local.common_tags
 
   depends_on = [null_resource.build_lambda]
 }
 
 ############################################
-# S3 → Lambda Notification (Prefix Filter)
+# S3 → Lambda Notification
 ############################################
 
 resource "aws_lambda_permission" "s3_invoke" {
@@ -319,36 +293,6 @@ resource "aws_s3_bucket_notification" "raw_events_trigger" {
 }
 
 ############################################
-# Optional EventBridge Schedule → Lambda
-############################################
-
-resource "aws_cloudwatch_event_rule" "glue_schedule" {
-  count = var.enable_schedule ? 1 : 0
-
-  name                = "${var.app_name}-${var.environment}-glue-schedule"
-  schedule_expression = var.schedule_expression
-  tags                = local.common_tags
-}
-
-resource "aws_cloudwatch_event_target" "glue_schedule_target" {
-  count = var.enable_schedule ? 1 : 0
-
-  rule      = aws_cloudwatch_event_rule.glue_schedule[0].name
-  target_id = "lambda"
-  arn       = module.lambda_trigger.lambda_arn
-}
-
-resource "aws_lambda_permission" "eventbridge_invoke" {
-  count = var.enable_schedule ? 1 : 0
-
-  statement_id  = "AllowEventBridgeInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = module.lambda_trigger.lambda_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.glue_schedule[0].arn
-}
-
-############################################
 # Outputs
 ############################################
 
@@ -356,8 +300,8 @@ output "alb_dns_name" {
   value = module.alb.alb_dns_name
 }
 
-output "ecs_service_arn" {
-  value = module.ecs_service.service_arn
+output "ecs_service_id" {
+  value = module.ecs_service.service_id
 }
 
 output "s3_bucket_name" {
