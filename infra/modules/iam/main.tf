@@ -1,38 +1,36 @@
 locals {
-  required_tags = {
-    environment           = var.environment
-    owner                 = var.owner
-    "cost-center"         = var.cost_center
-    "data-classification" = "phi"
-    "managed-by"          = "terraform"
-  }
-
-  tags = var.tags
-}
-
-############################################
-# ECS Execution Role
-############################################
-
-data "aws_iam_policy_document" "execution_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
+  base_tags = merge(
+    var.tags,
+    {
+      Environment = var.environment
+      Owner       = var.owner
+      CostCenter  = var.cost_center
+      ManagedBy   = "terraform"
     }
-  }
+  )
 }
 
-resource "aws_iam_role" "execution" {
-  name               = "hesp-${var.environment}-ingest-execution"
-  assume_role_policy = data.aws_iam_policy_document.execution_assume_role.json
-  tags               = local.tags
+############################################
+# ECS Task Execution Role
+############################################
+
+resource "aws_iam_role" "ecs_execution" {
+  name = "ecs-execution-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.base_tags
 }
 
-resource "aws_iam_role_policy_attachment" "execution_managed" {
-  role       = aws_iam_role.execution.name
+resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
+  role       = aws_iam_role.ecs_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
@@ -40,141 +38,133 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 # ECS Task Role
 ############################################
 
-data "aws_iam_policy_document" "task_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
+resource "aws_iam_role" "ecs_task" {
+  name = "ecs-task-${var.environment}"
 
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
-  }
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.base_tags
 }
 
-resource "aws_iam_role" "task" {
-  name               = "hesp-${var.environment}-ingest-task"
-  assume_role_policy = data.aws_iam_policy_document.task_assume_role.json
-  tags               = local.tags
-}
+resource "aws_iam_policy" "ecs_task_policy" {
+  name = "ecs-task-policy-${var.environment}"
 
-data "aws_iam_policy_document" "task" {
-  statement {
-    sid      = "AllowS3PutRawEvents"
-    effect   = "Allow"
-    actions  = ["s3:PutObject"]
-    resources = [
-      "${var.bucket_arn}/*"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.bucket_arn,
+          "${var.bucket_arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = var.kms_key_arn
+      }
     ]
-  }
-
-  statement {
-    sid      = "AllowKMSForS3"
-    effect   = "Allow"
-    actions  = [
-      "kms:GenerateDataKey",
-      "kms:Decrypt"
-    ]
-    resources = [var.kms_key_arn]
-  }
-
-  statement {
-    sid      = "AllowCloudWatchMetrics"
-    effect   = "Allow"
-    actions  = ["cloudwatch:PutMetricData"]
-    resources = ["*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "cloudwatch:namespace"
-      values   = ["HESP/Ingest"]
-    }
-  }
-
-  statement {
-    sid      = "AllowCloudWatchLogs"
-    effect   = "Allow"
-    actions  = [
-      "logs:CreateLogStream",
-      "logs:PutLogEvents"
-    ]
-    resources = ["${var.log_group_arn}:*"]
-  }
+  })
 }
 
-resource "aws_iam_policy" "task" {
-  name   = "hesp-${var.environment}-ingest-task-policy"
-  policy = data.aws_iam_policy_document.task.json
-}
-
-resource "aws_iam_role_policy_attachment" "task" {
-  role       = aws_iam_role.task.name
-  policy_arn = aws_iam_policy.task.arn
+resource "aws_iam_role_policy_attachment" "ecs_task_policy_attach" {
+  role       = aws_iam_role.ecs_task.name
+  policy_arn = aws_iam_policy.ecs_task_policy.arn
 }
 
 ############################################
-# Glue Job Role (NEW — required for ingestion pipeline)
+# Glue Job Role
 ############################################
-
-data "aws_iam_policy_document" "glue_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["glue.amazonaws.com"]
-    }
-  }
-}
 
 resource "aws_iam_role" "glue" {
-  name               = "hesp-${var.environment}-glue-role"
-  assume_role_policy = data.aws_iam_policy_document.glue_assume_role.json
-  tags               = local.tags
+  name = "glue-job-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "glue.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.base_tags
 }
 
-data "aws_iam_policy_document" "glue_policy" {
-  statement {
-    sid     = "AllowS3ReadScripts"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
-    resources = [
-      "${var.scripts_bucket_arn}/*"
-    ]
-  }
+resource "aws_iam_policy" "glue_policy" {
+  name = "glue-policy-${var.environment}"
 
-  statement {
-    sid     = "AllowS3ReadWriteRaw"
-    effect  = "Allow"
-    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = [
-      "${var.bucket_arn}/*"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.bucket_arn,
+          "${var.bucket_arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = var.kms_key_arn
+      }
     ]
-  }
-
-  statement {
-    sid     = "AllowKMS"
-    effect  = "Allow"
-    actions = ["kms:Decrypt", "kms:GenerateDataKey"]
-    resources = [var.kms_key_arn]
-  }
-
-  statement {
-    sid     = "AllowCloudWatchLogs"
-    effect  = "Allow"
-    actions = [
-      "logs:CreateLogStream",
-      "logs:PutLogEvents"
-    ]
-    resources = ["${var.log_group_arn}:*"]
-  }
+  })
 }
 
-resource "aws_iam_policy" "glue" {
-  name   = "hesp-${var.environment}-glue-policy"
-  policy = data.aws_iam_policy_document.glue_policy.json
-}
-
-resource "aws_iam_role_policy_attachment" "glue" {
+resource "aws_iam_role_policy_attachment" "glue_policy_attach" {
   role       = aws_iam_role.glue.name
-  policy_arn = aws_iam_policy.glue.arn
+  policy_arn = aws_iam_policy.glue_policy.arn
 }
+
+############################################
+# Lambda Role
+############################################
+
+resource "aws_iam_role" "lambda" {
+  name = "lambda-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.base_tags
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+

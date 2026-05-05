@@ -11,35 +11,15 @@ cost_center = "12345"
 bucket_name            = "hesp-dev-raw-events-001"
 access_log_bucket_name = "hesp-dev-access-logs"
 
-# Networking
-vpc_id = "vpc-053e0aaa362d0b71e"
-
-public_subnet_ids = [
-  "subnet-01f36b9ed440b5613",
-  "subnet-065421a8ee06a681b"
-]
-
-private_subnet_ids = [
-  "subnet-08b6a642d7bd77695",
-  "subnet-025fc8bf74d1fd4ef"
-]
-
 # ECS service configuration
-container_image = "public.ecr.aws/xxxxxxx/ingest-service:latest"
-desired_count   = 1
+#container_image = "public.ecr.aws/xxxxxxx/ingest-service:latest"
+container_image = "045797643729.dkr.ecr.us-east-1.amazonaws.com/hesp:latest"
 
-# Glue job IAM role (must exist)
-glue_role_arn = "arn:aws:iam::123456789012:role/hesp-dev-glue-role"
 
-# Optional EventBridge schedule (disabled by default)
-enable_schedule     = false
-schedule_expression = "rate(1 day)"
+desired_count = 1
 
-# Tags
-tags = {
-  "environment"         = "dev"
-  "owner"               = "platform-team"
-  "managed-by"          = "terraform"
-  "cost-center"         = "12345"
-  "data-classification" = "phi"
-}
+# Glue job script + temp directory (NEW)
+glue_script_s3_path = "s3://hesp-dev-raw-events-001/scripts/glue_job.py"
+glue_temp_dir       = "s3://hesp-dev-raw-events-001/tmp/"
+
+

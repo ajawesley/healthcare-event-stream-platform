@@ -1,22 +1,37 @@
 package normalizer
 
 import (
+	"errors"
+	"log/slog"
+
+	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/detector"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-type genericNormalizer struct{}
+type GenericNormalizer struct{}
 
-func NewGenericNormalizer() Normalizer {
-	return &genericNormalizer{}
+func NewGenericNormalizer() *GenericNormalizer {
+	return &GenericNormalizer{}
 }
 
-func (n *genericNormalizer) Normalize(value any, meta api.Envelope) (*models.CanonicalEvent, error) {
-	return &models.CanonicalEvent{
-		EventID:      meta.EventID,
-		SourceSystem: meta.SourceSystem,
-		Format:       detector.FormatGeneric,
-		RawValue:     value,
-	}, nil
+func (n *GenericNormalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
+	logger := slog.Default().With(
+		"component", "generic_normalizer",
+		"event_id", env.EventID,
+	)
+
+	logger.Info("starting Generic normalization")
+
+	if raw == nil {
+		return nil, errors.New("nil raw payload")
+	}
+
+	ne := models.NewNormalizedEvent(config.FormatGeneric, raw)
+
+	// Tests expect raw to be stored as a string
+	ne.Fields["raw"] = string(raw)
+
+	logger.Info("Generic normalization complete")
+	return ne, nil
 }

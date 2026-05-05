@@ -5,8 +5,12 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-// Normalizer defines the interface for converting parsed payloads
-// into a CanonicalEvent.
+// Normalizer converts raw payloads into a cleaned, structured,
+// format-specific NormalizedEvent.
+//
+// It does NOT apply domain semantics.
+// It does NOT produce a CanonicalEvent.
+// That is the Transformer's job.
 type Normalizer interface {
-	Normalize(value any, meta api.Envelope) (*models.CanonicalEvent, error)
+	Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error)
 }

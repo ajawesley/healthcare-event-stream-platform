@@ -9,57 +9,28 @@ import (
 	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/detector"
 	"github.com/ajawes/hesp/internal/ingestion/models"
-	"github.com/ajawes/hesp/internal/ingestion/normalizer"
 )
 
-type FakeNormalizer struct {
-	called bool
-	err    error
-}
-
-func (f *FakeNormalizer) Normalize(value any, meta api.Envelope) (*models.CanonicalEvent, error) {
-	f.called = true
-	return &models.CanonicalEvent{
-		EventID:      meta.EventID,
-		SourceSystem: meta.SourceSystem,
-		Format:       detector.FormatGeneric,
-		RawValue:     value,
-	}, f.err
-}
-
-type FakeNormalizationRouter struct {
-	normalizer normalizer.Normalizer
-	err        error
-}
-
-func (r *FakeNormalizationRouter) NormalizerFor(format detector.Format) (normalizer.Normalizer, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.normalizer, nil
-}
+// FakeRouter captures calls to Route and returns a canned response.
 
 func TestHandler_NormalizationPath(t *testing.T) {
-	now := time.Now().UTC().Format(time.RFC3339)
 
-	fakeNormalizer := &FakeNormalizer{}
-	fakeNormalizationRouter := &FakeNormalizationRouter{normalizer: fakeNormalizer}
+	fake := &FakeRouter{
+		resp: &models.CanonicalEvent{
+			Format: "generic",
+		},
+	}
 
 	h := NewHandler(
-		WithConfig(minimalConfig()),
-		WithRouter(&FakeRouter{format: detector.FormatGeneric}),
-		WithDetector(&FakeDetector{format: detector.FormatGeneric}),
-		WithTransformationRouter(&FakeTransformationRouter{transformer: &FakeTransformer{}}),
-		WithNormalizationRouter(fakeNormalizationRouter),
+		WithRouter(fake),
 	)
 
 	body := map[string]any{
 		"envelope": mustJSONMarshal(api.Envelope{
 			EventID:      "evt-1",
 			EventType:    "ingest.test",
-			ProducedAt:   now,
+			ProducedAt:   time.Now().UTC(),
 			SourceSystem: "test",
 		}),
 		"payload": json.RawMessage(`"x"`),
@@ -71,10 +42,32 @@ func TestHandler_NormalizationPath(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
+	// --- Assert status ---
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", rec.Code)
 	}
-	if !fakeNormalizer.called {
-		t.Fatalf("expected normalizer to be called")
+
+	// --- Assert router was called ---
+	if string(fake.calledPayload) != `"x"` {
+		t.Fatalf("expected payload \"x\", got %s", string(fake.calledPayload))
+	}
+	if fake.calledEnv.EventID != "evt-1" {
+		t.Fatalf("expected envelope event_id evt-1, got %s", fake.calledEnv.EventID)
+	}
+
+	// --- Assert response body ---
+	var resp api.IngestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+
+	if resp.EventID != "evt-1" {
+		t.Fatalf("expected EventID evt-1, got %s", resp.EventID)
+	}
+	if resp.Format != "generic" {
+		t.Fatalf("expected Format generic, got %s", resp.Format)
+	}
+	if resp.IngestedAt == "" {
+		t.Fatalf("expected IngestedAt to be set")
 	}
 }

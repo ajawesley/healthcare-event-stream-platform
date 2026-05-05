@@ -1,74 +1,88 @@
 package normalizer
 
 import (
-	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/detector"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
 
-type hl7Normalizer struct{}
+type HL7Normalizer struct{}
 
-func NewHL7Normalizer() Normalizer {
-	return &hl7Normalizer{}
+func NewHL7Normalizer() *HL7Normalizer {
+	return &HL7Normalizer{}
 }
 
-func (n *hl7Normalizer) Normalize(value any, meta api.Envelope) (*models.CanonicalEvent, error) {
-	raw, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected HL7 string, got %T", value)
-	}
+func (n *HL7Normalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
+	logger := slog.Default().With(
+		"component", "hl7_normalizer",
+		"event_id", env.EventID,
+	)
 
-	msg, err := models.ParseHL7(raw)
+	logger.Info("starting HL7 normalization")
+
+	msg, err := models.ParseHL7(string(raw))
 	if err != nil {
+		logger.Error("HL7 parse failed", "error", err)
 		return nil, err
 	}
 
-	patient := &models.CanonicalPatient{
-		ID:        safeHL7(msg.PID, 3),
-		LastName:  safeHL7(msg.PID, 5, 0),
-		FirstName: safeHL7(msg.PID, 5, 1),
+	msh := msg.MSH
+	pid := msg.PID
+	pv1 := msg.PV1
+
+	// MSH-9: ORU^R01
+	messageType := safeHL7Field(msh, 8)
+
+	// PID-3: Patient ID
+	patientID := safeHL7Field(pid, 3)
+
+	// PID-5: Doe^John
+	var lastName, firstName string
+	if len(pid) > 5 {
+		name := pid[5]
+		parts := strings.Split(name, "^")
+		if len(parts) > 0 {
+			lastName = parts[0]
+		}
+		if len(parts) > 1 {
+			firstName = parts[1]
+		}
 	}
 
-	encounter := &models.CanonicalEncounter{
-		ID:   safeHL7(msg.PV1, 20),
-		Type: safeHL7(msg.PV1, 2),
-	}
+	// PV1-20: Encounter ID (correct index)
+	encounterID := safeHL7Field(pv1, 20)
 
-	// NOTE: HL7 MSH is special: after splitting on '|', array index = HL7 field number - 1.
-	// Example: MSH-9 (Message Type) is at index 8.
-	observation := &models.CanonicalObservation{
-		Code:  safeHL7(msg.MSH, 8),
-		Value: nil,
-	}
+	logger.Info("parsed HL7 fields",
+		"message_type", messageType,
+		"patient_id", patientID,
+		"first_name", firstName,
+		"last_name", lastName,
+		"encounter_id", encounterID,
+	)
 
-	return &models.CanonicalEvent{
-		EventID:      meta.EventID,
-		SourceSystem: meta.SourceSystem,
-		Format:       detector.FormatHL7,
-		Patient:      patient,
-		Encounter:    encounter,
-		Observation:  observation,
-		RawValue:     raw,
-	}, nil
+	ne := models.NewNormalizedEvent(config.FormatHL7, raw)
+
+	// Fields
+	ne.Fields["msh.message_type"] = messageType
+	ne.Fields["pid.id"] = patientID
+	ne.Fields["pid.first_name"] = firstName
+	ne.Fields["pid.last_name"] = lastName
+	ne.Fields["pv1.encounter_id"] = encounterID
+
+	// Metadata
+	ne.Metadata["event_id"] = env.EventID
+	ne.Metadata["source_system"] = env.SourceSystem
+
+	logger.Info("HL7 normalization complete")
+	return ne, nil
 }
 
-// safeHL7 extracts fields safely, supporting nested components (eg. PID|1||PAT123||Doe^John)
-func safeHL7(fields []string, idx int, subIdx ...int) string {
-	if idx >= len(fields) {
-		return ""
+func safeHL7Field(fields []string, idx int) string {
+	if len(fields) > idx {
+		return fields[idx]
 	}
-	val := fields[idx]
-
-	if len(subIdx) == 0 {
-		return val
-	}
-
-	parts := strings.Split(val, "^")
-	if subIdx[0] >= len(parts) {
-		return ""
-	}
-	return parts[subIdx[0]]
+	return ""
 }

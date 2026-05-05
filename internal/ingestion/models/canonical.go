@@ -1,16 +1,16 @@
 package models
 
 import (
-	"github.com/ajawes/hesp/internal/ingestion/detector"
+	"github.com/ajawes/hesp/internal/config"
 )
 
 // CanonicalEvent represents the normalized, cross-format healthcare event.
 // This is the output of the transformation layer and the input to downstream systems.
 type CanonicalEvent struct {
-	EventID      string          `json:"event_id"`
-	SourceSystem string          `json:"source_system"`
-	Format       detector.Format `json:"format"`
-	Metadata     map[string]any  `json:"metadata,omitempty"`
+	EventID      string         `json:"event_id"`
+	SourceSystem string         `json:"source_system"`
+	Format       config.Format  `json:"format"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 
 	// Domain-specific normalized structures (to be expanded in later slices)
 	Patient     *CanonicalPatient     `json:"patient,omitempty"`
