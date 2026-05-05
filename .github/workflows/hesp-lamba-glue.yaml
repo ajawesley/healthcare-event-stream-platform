@@ -9,8 +9,8 @@ on:
 env:
   AWS_REGION: us-east-1
   TF_WORKING_DIR: infra
-  LAMBDA_BINARY: glue-trigger-lambda
-  LAMBDA_ZIP: glue-trigger-lambda.zip
+  LAMBDA_BINARY: bootstrap
+  LAMBDA_ZIP: lambda.zip
 
 jobs:
   build:
