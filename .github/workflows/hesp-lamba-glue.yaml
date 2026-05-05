@@ -10,7 +10,7 @@ env:
   AWS_REGION: us-east-1
   TF_WORKING_DIR: infra
   LAMBDA_BINARY: glue-trigger-lambda
-  LAMBDA_ZIP: lambda.zip
+  LAMBDA_ZIP: glue-trigger-lambda.zip
 
 jobs:
   build:
