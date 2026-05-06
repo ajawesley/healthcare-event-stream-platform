@@ -48,12 +48,24 @@ module "github_oidc" {
       Effect = "Allow"
       Action = [
         "sts:AssumeRole",
+
+        # Core infra this repo manages
+        "ecr:*",
+        "ecs:*",
+        "elasticloadbalancing:*",
+        "ec2:*",
+
+        # App/runtime services
         "lambda:*",
         "s3:*",
-        "iam:PassRole",
+        "glue:*",
+
+        # Observability
         "cloudwatch:*",
         "logs:*",
-        "glue:*"
+
+        # Needed to attach roles to ECS/Lambda/Glue, etc.
+        "iam:PassRole"
       ]
       Resource = "*"
     }
