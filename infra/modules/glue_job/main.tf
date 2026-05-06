@@ -12,6 +12,16 @@ locals {
 }
 
 ############################################
+# CloudWatch Log Group for Glue Job
+############################################
+
+resource "aws_cloudwatch_log_group" "glue" {
+  name              = var.log_group_name
+  retention_in_days = 30
+  tags              = local.base_tags
+}
+
+############################################
 # Glue Job
 ############################################
 
@@ -25,17 +35,28 @@ resource "aws_glue_job" "this" {
     python_version  = "3"
   }
 
-  default_arguments = {
-    "--TempDir"                  = var.temp_dir
-    "--enable-continuous-cloudwatch-log" = "true"
-    "--continuous-log-logGroup"          = var.log_group_name
-  }
+ default_arguments = {
+  "--TempDir"                          = var.temp_dir
+  "--enable-continuous-cloudwatch-log" = "true"
+  "--continuous-log-logGroup"          = var.log_group_name
+  "--job-language"                     = "python"
+  "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
 
-  glue_version       = "4.0"
-  number_of_workers  = 2
-  worker_type        = "G.1X"
-  timeout            = 60
-
-  tags = local.base_tags
+  # STATIC ONLY — Lambda overrides input_path at runtime
+  "--output_base_path" = "s3://${var.golden_bucket}/"
+  "--error_path"       = "s3://${var.golden_bucket}/errors/"
 }
 
+
+  glue_version      = "4.0"
+  number_of_workers = 2
+  worker_type       = "G.1X"
+  timeout           = 60
+  max_retries       = 1
+
+  tags = local.base_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.glue
+  ]
+}

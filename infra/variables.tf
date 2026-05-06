@@ -1,12 +1,12 @@
-variable "aws_region" {
-  type = string
-}
-
 variable "app_name" {
   type = string
 }
 
 variable "environment" {
+  type = string
+}
+
+variable "aws_region" {
   type = string
 }
 
@@ -18,11 +18,11 @@ variable "cost_center" {
   type = string
 }
 
-variable "bucket_name" {
+variable "access_log_bucket_name" {
   type = string
 }
 
-variable "access_log_bucket_name" {
+variable "bucket_name" {
   type = string
 }
 
@@ -31,8 +31,11 @@ variable "container_image" {
 }
 
 variable "desired_count" {
-  type    = number
-  default = 1
+  type = number
+}
+
+variable "script_bucket" {
+  type = string
 }
 
 variable "glue_script_s3_path" {
@@ -41,4 +44,9 @@ variable "glue_script_s3_path" {
 
 variable "glue_temp_dir" {
   type = string
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
 }

@@ -1,36 +1,36 @@
 variable "environment" {
-  type        = string
-  description = "Deployment environment."
+  type = string
 }
 
 variable "owner" {
-  type        = string
-  description = "Owner tag."
+  type = string
 }
 
 variable "cost_center" {
-  type        = string
-  description = "Cost center tag."
-}
-
-variable "bucket_arn" {
-  type        = string
-  description = "ARN of the S3 bucket used by ECS and Glue."
+  type = string
 }
 
 variable "kms_key_arn" {
-  type        = string
-  description = "KMS key used for S3 encryption."
+  type = string
 }
 
 variable "log_group_arn" {
-  type        = string
-  description = "CloudWatch log group ARN for ECS tasks."
+  type = string
 }
 
 variable "tags" {
-  type        = map(string)
-  default     = {}
-  description = "Additional tags."
+  type = map(string)
+}
+
+variable "raw_bucket_arn" {
+  type = string
+}
+
+variable "script_bucket_arn" {
+  type = string
+}
+
+variable "golden_bucket_arn" {
+  type = string
 }
 

@@ -67,8 +67,8 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          var.bucket_arn,
-          "${var.bucket_arn}/*"
+          var.raw_bucket_arn,
+          "${var.raw_bucket_arn}/*"
         ]
       },
       {
@@ -76,7 +76,8 @@ resource "aws_iam_policy" "ecs_task_policy" {
         Action = [
           "kms:Decrypt",
           "kms:Encrypt",
-          "kms:GenerateDataKey"
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
         ]
         Resource = var.kms_key_arn
       }
@@ -114,26 +115,84 @@ resource "aws_iam_policy" "glue_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+
+      # 1. RAW EVENTS BUCKET (READ)
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:PutObject",
           "s3:ListBucket"
         ]
         Resource = [
-          var.bucket_arn,
-          "${var.bucket_arn}/*"
+          var.raw_bucket_arn,
+          "${var.raw_bucket_arn}/*"
         ]
       },
+
+      # 2. GLUE SCRIPTS BUCKET (READ)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.script_bucket_arn,
+          "${var.script_bucket_arn}/*"
+        ]
+      },
+
+      # 3. GLUE TEMP DIR + SPARK LOGS (WRITE)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.script_bucket_arn,
+          "${var.script_bucket_arn}/tmp/*",
+          "${var.script_bucket_arn}/spark-history/*"
+        ]
+      },
+
+      # 4. GOLDEN BUCKET (WRITE)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.golden_bucket_arn,
+          "${var.golden_bucket_arn}/*"
+        ]
+      },
+
+      # 5. KMS (ALL ENCRYPTED BUCKETS)
       {
         Effect = "Allow"
         Action = [
           "kms:Decrypt",
           "kms:Encrypt",
-          "kms:GenerateDataKey"
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
         ]
         Resource = var.kms_key_arn
+      },
+
+      # 6. CloudWatch Logs
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
       }
     ]
   })
@@ -167,4 +226,3 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
-

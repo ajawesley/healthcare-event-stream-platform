@@ -32,6 +32,35 @@ locals {
 }
 
 ############################################
+# GitHub OIDC IAM Role
+############################################
+
+module "github_oidc" {
+  source = "./modules/github-oidc-role"
+
+  role_name    = "github-oidc-deploy-role"
+  github_owner = "ajawesley"
+  github_repo  = "healthcare-event-stream-platform"
+  github_ref   = "*"
+
+  inline_policy_statements = [
+    {
+      Effect = "Allow"
+      Action = [
+        "sts:AssumeRole",
+        "lambda:*",
+        "s3:*",
+        "iam:PassRole",
+        "cloudwatch:*",
+        "logs:*",
+        "glue:*"
+      ]
+      Resource = "*"
+    }
+  ]
+}
+
+############################################
 # VPC Module
 ############################################
 
@@ -127,10 +156,14 @@ module "s3" {
 module "iam" {
   source = "./modules/iam"
 
-  environment   = var.environment
-  owner         = var.owner
-  cost_center   = var.cost_center
-  bucket_arn    = module.s3.bucket_arn
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+
+  raw_bucket_arn    = module.s3.bucket_arn
+  script_bucket_arn = "arn:aws:s3:::${var.script_bucket}"
+  golden_bucket_arn = "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001"
+
   kms_key_arn   = module.s3.kms_key_arn
   log_group_arn = aws_cloudwatch_log_group.ecs.arn
   tags          = local.common_tags
@@ -139,11 +172,11 @@ module "iam" {
 ############################################
 # ALB Security Group
 ############################################
+
 resource "aws_security_group" "alb" {
   name        = "${var.app_name}-${var.environment}-alb-sg-new"
   description = "ALB security group"
   vpc_id      = module.vpc.vpc_id
-
 
   ingress {
     from_port   = 80
@@ -161,7 +194,6 @@ resource "aws_security_group" "alb" {
 
   tags = local.common_tags
 }
-
 
 ############################################
 # ALB Module
@@ -207,7 +239,6 @@ module "ecs_service" {
   tags                    = local.common_tags
 }
 
-
 ############################################
 # Glue Job Module
 ############################################
@@ -215,13 +246,20 @@ module "ecs_service" {
 module "glue_job" {
   source = "./modules/glue_job"
 
-  app_name       = var.app_name
-  environment    = var.environment
-  owner          = var.owner
-  cost_center    = var.cost_center
-  glue_role_arn  = module.iam.glue_role_arn
+  app_name    = var.app_name
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+
+  glue_role_arn = module.iam.glue_role_arn
+
+  script_bucket  = var.script_bucket
   script_s3_path = var.glue_script_s3_path
   temp_dir       = var.glue_temp_dir
+
+  raw_bucket    = module.s3.bucket_name
+  golden_bucket = "${var.app_name}-${var.environment}-golden-events-001"
+
   log_group_name = "/aws/glue/${var.app_name}-${var.environment}"
   tags           = local.common_tags
 }
@@ -232,7 +270,7 @@ module "glue_job" {
 
 resource "null_resource" "build_lambda" {
   triggers = {
-    src_hash = filemd5("${path.module}/../cmd/lambda/main.go")
+    src_hash = filemd5("${path.root}/../cmd/lambda/main.go")
   }
 
   provisioner "local-exec" {
@@ -251,16 +289,23 @@ EOF
 module "lambda_trigger" {
   source = "./modules/lambda_trigger"
 
-  app_name        = var.app_name
-  environment     = var.environment
-  owner           = var.owner
-  cost_center     = var.cost_center
-  glue_job_name   = module.glue_job.glue_job_name
-  glue_job_arn    = module.glue_job.glue_job_arn
+  app_name    = var.app_name
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+
+  glue_job_name = module.glue_job.glue_job_name
+  glue_job_arn  = module.glue_job.glue_job_arn
+
   raw_bucket_name = module.s3.bucket_name
-  lambda_role_arn = module.iam.lambda_role_arn
-  lambda_zip_path = "${path.module}/../cmd/lambda/lambda.zip"
-  tags            = local.common_tags
+
+  lambda_role_arn  = module.iam.lambda_role_arn
+  lambda_role_name = module.iam.lambda_role_name
+
+  lambda_zip_path = "${path.root}/../cmd/lambda/lambda.zip"
+
+  kms_key_arn = module.s3.kms_key_arn
+  tags        = local.common_tags
 
   depends_on = [null_resource.build_lambda]
 }
@@ -283,35 +328,11 @@ resource "aws_s3_bucket_notification" "raw_events_trigger" {
   lambda_function {
     lambda_function_arn = module.lambda_trigger.lambda_arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "input/"
+    filter_prefix       = "events/"
   }
 
   depends_on = [
     module.lambda_trigger,
     aws_lambda_permission.s3_invoke
   ]
-}
-
-############################################
-# Outputs
-############################################
-
-output "alb_dns_name" {
-  value = module.alb.alb_dns_name
-}
-
-output "ecs_service_id" {
-  value = module.ecs_service.service_id
-}
-
-output "s3_bucket_name" {
-  value = module.s3.bucket_name
-}
-
-output "glue_job_name" {
-  value = module.glue_job.glue_job_name
-}
-
-output "lambda_trigger_name" {
-  value = module.lambda_trigger.lambda_name
 }

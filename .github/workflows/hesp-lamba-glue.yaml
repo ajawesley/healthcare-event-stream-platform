@@ -1,0 +1,165 @@
+name: HESP Lambda + Glue CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKING_DIR: infra
+  LAMBDA_BINARY: bootstrap
+  LAMBDA_ZIP: lambda.zip
+
+jobs:
+  build:
+    name: Build Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Go test
+        run: go test ./...
+
+      - name: Build Lambda (linux/arm64)
+        run: |
+          cd cmd/lambda
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ${LAMBDA_BINARY}
+          zip ${LAMBDA_ZIP} ${LAMBDA_BINARY}
+
+      - name: Debug ZIP
+        run: |
+          echo "Listing repo root:"
+          ls -l .
+          echo "Listing cmd/lambda:"
+          ls -l cmd/lambda
+          
+      - name: Upload Lambda artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zip
+          path: cmd/lambda/${{ env.LAMBDA_ZIP }}
+
+  deploy:
+    name: Deploy Infra (Terraform)
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Lambda artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-zip
+          path: cmd/lambda
+
+      - name: Inspect Lambda binary
+        run: |
+          cd cmd/lambda
+          rm -f bootstrap
+          unzip -l lambda.zip
+          unzip lambda.zip bootstrap
+          file bootstrap
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+  smoke:
+    name: Smoke Test Lambda + Glue
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+          output-env-credentials: true
+
+      - name: Invoke Lambda (Glue trigger)
+        run: |
+          LAMBDA_NAME="${{ secrets.AWS_GLUE_TRIGGER_LAMBDA_NAME }}"
+
+          # Write real S3 event payload to a file
+          cat > real-s3-event.json << 'EOF'
+          {
+            "Records": [
+              {
+                "eventVersion": "2.1",
+                "eventSource": "aws:s3",
+                "awsRegion": "us-east-1",
+                "eventTime": "2026-05-06T00:00:00.000Z",
+                "eventName": "ObjectCreated:Put",
+                "s3": {
+                  "bucket": {
+                    "name": "hesp-dev-raw-events-001"
+                  },
+                  "object": {
+                    "key": "events/fhir-server/fhir/evt-003.json",
+                    "size": 1234
+                  }
+                }
+             }
+           ]
+          }
+          EOF
+
+          # Invoke Lambda with the real S3 event
+          aws lambda invoke \
+            --function-name "$LAMBDA_NAME" \
+            --payload file://real-s3-event.json \
+            --cli-binary-format raw-in-base64-out \
+              /tmp/lambda-response.json
+
+          cat /tmp/lambda-response.json
+
+
+      - name: Verify Glue job started
+        run: |
+          GLUE_JOB_NAME="${{ secrets.AWS_GLUE_JOB_NAME }}"
+          # Simple check: list last runs and ensure at least one recent
+          aws glue get-job-runs --job-name "$GLUE_JOB_NAME" --max-results 1 > /tmp/glue-runs.json
+          cat /tmp/glue-runs.json
+
+
