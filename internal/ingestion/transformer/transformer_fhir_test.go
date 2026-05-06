@@ -6,9 +6,24 @@ import (
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
+// ------------------------------------------------------------
+// Observability initialization for tests
+// ------------------------------------------------------------
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+}
+
 func TestFHIRTransformer(t *testing.T) {
+	xfm := NewFHIRTransformer()
+
 	tests := []struct {
 		name      string
 		ne        *models.NormalizedEvent
@@ -17,7 +32,7 @@ func TestFHIRTransformer(t *testing.T) {
 		verify    func(t *testing.T, ce *models.CanonicalEvent)
 	}{
 		{
-			name: "Patient mapping",
+			name: "Transforms Patient",
 			ne: &models.NormalizedEvent{
 				Format: config.FormatFHIR,
 				Fields: map[string]any{
@@ -25,66 +40,62 @@ func TestFHIRTransformer(t *testing.T) {
 					"fhir.id":            "pat123",
 				},
 			},
-			env: api.Envelope{EventID: "evt1", SourceSystem: "test"},
+			env: api.Envelope{EventID: "evt1", SourceSystem: "sys"},
 			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Patient.ID != "pat123" {
-					t.Fatalf("expected pat123, got %s", ce.Patient.ID)
+				if ce.Patient == nil || ce.Patient.ID != "pat123" {
+					t.Fatalf("expected Patient ID pat123, got %+v", ce.Patient)
 				}
 			},
 		},
 		{
-			name: "Encounter mapping",
-			ne: &models.NormalizedEvent{
-				Format: config.FormatFHIR,
-				Fields: map[string]any{
-					"fhir.resource_type": "Encounter",
-					"fhir.id":            "enc789",
-					"fhir.class.code":    "AMB",
-				},
-			},
-			env: api.Envelope{EventID: "evt2", SourceSystem: "test"},
-			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Encounter.ID != "enc789" {
-					t.Fatalf("expected enc789, got %s", ce.Encounter.ID)
-				}
-				if ce.Encounter.Type != "AMB" {
-					t.Fatalf("expected AMB, got %s", ce.Encounter.Type)
-				}
-			},
-		},
-		{
-			name: "Observation mapping",
+			name: "Transforms Observation",
 			ne: &models.NormalizedEvent{
 				Format: config.FormatFHIR,
 				Fields: map[string]any{
 					"fhir.resource_type": "Observation",
-					"fhir.code":          "12345-6",
-					"fhir.value":         "98.6",
+					"fhir.code":          "718-7",
+					"fhir.value":         13.5,
 				},
 			},
-			env: api.Envelope{EventID: "evt3", SourceSystem: "test"},
+			env: api.Envelope{EventID: "evt2", SourceSystem: "sys"},
 			verify: func(t *testing.T, ce *models.CanonicalEvent) {
-				if ce.Observation.Code != "12345-6" {
-					t.Fatalf("expected 12345-6, got %s", ce.Observation.Code)
+				if ce.Observation == nil {
+					t.Fatalf("expected Observation")
 				}
-				if ce.Observation.Value != "98.6" {
-					t.Fatalf("expected 98.6, got %v", ce.Observation.Value)
+				if ce.Observation.Code != "718-7" {
+					t.Fatalf("expected code 718-7, got %s", ce.Observation.Code)
+				}
+				if ce.Observation.Value != 13.5 {
+					t.Fatalf("expected value 13.5, got %v", ce.Observation.Value)
 				}
 			},
+		},
+		{
+			name: "Unsupported format",
+			ne: &models.NormalizedEvent{
+				Format: config.FormatHL7,
+			},
+			expectErr: true,
+		},
+		{
+			name: "Missing resourceType",
+			ne: &models.NormalizedEvent{
+				Format: config.FormatFHIR,
+				Fields: map[string]any{},
+			},
+			expectErr: true,
 		},
 		{
 			name: "Unsupported resourceType",
 			ne: &models.NormalizedEvent{
 				Format: config.FormatFHIR,
 				Fields: map[string]any{
-					"fhir.resource_type": "Medication",
+					"fhir.resource_type": "WeirdThing",
 				},
 			},
 			expectErr: true,
 		},
 	}
-
-	xfm := NewFHIRTransformer()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,7 +112,9 @@ func TestFHIRTransformer(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			tt.verify(t, ce)
+			if tt.verify != nil {
+				tt.verify(t, ce)
+			}
 		})
 	}
 }

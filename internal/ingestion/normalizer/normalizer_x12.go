@@ -1,11 +1,13 @@
 package normalizer
 
 import (
-	"log/slog"
+	"context"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type X12Normalizer struct{}
@@ -15,16 +17,17 @@ func NewX12Normalizer() *X12Normalizer {
 }
 
 func (n *X12Normalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	logger := slog.Default().With(
-		"component", "x12_normalizer",
-		"event_id", env.EventID,
+	ctx := context.Background()
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "x12_normalizer"),
+		zap.String("event_id", env.EventID),
 	)
 
-	logger.Info("starting X12 normalization")
+	log.Info("x12_normalization_start")
 
 	msg, err := models.ParseX12(string(raw))
 	if err != nil {
-		logger.Error("X12 parse failed", "error", err)
+		log.Error("x12_parse_failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -50,13 +53,13 @@ func (n *X12Normalizer) Normalize(raw []byte, env api.Envelope) (*models.Normali
 		serviceDate = dtp[3]
 	}
 
-	logger.Info("parsed X12 fields",
-		"patient_id", patientID,
-		"first_name", firstName,
-		"last_name", lastName,
-		"encounter_id", encounterID,
-		"observation_code", observationCode,
-		"service_date", serviceDate,
+	log.Debug("x12_parsed_fields",
+		zap.String("patient_id", patientID),
+		zap.String("first_name", firstName),
+		zap.String("last_name", lastName),
+		zap.String("encounter_id", encounterID),
+		zap.String("observation_code", observationCode),
+		zap.String("service_date", serviceDate),
 	)
 
 	ne := models.NewNormalizedEvent(config.FormatX12, raw)
@@ -75,7 +78,11 @@ func (n *X12Normalizer) Normalize(raw []byte, env api.Envelope) (*models.Normali
 	ne.Metadata["event_id"] = env.EventID
 	ne.Metadata["source_system"] = env.SourceSystem
 
-	logger.Info("X12 normalization complete")
+	log.Info("x12_normalization_complete",
+		zap.Any("fields", ne.Fields),
+		zap.Any("metadata", ne.Metadata),
+	)
+
 	return ne, nil
 }
 

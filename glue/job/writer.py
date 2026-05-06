@@ -1,7 +1,7 @@
-import logging
 from pyspark.sql import DataFrame
+from glue.job.hesp_logging import get_logger
 
-logger = logging.getLogger(__name__)
+log = get_logger()
 
 def write_output(df: DataFrame, output_base_path: str) -> None:
     """
@@ -22,7 +22,13 @@ def write_output(df: DataFrame, output_base_path: str) -> None:
             "Ensure add_partition_columns() was applied."
         )
 
-    logger.info(f"Writing output to {output_base_path}")
+    count = df.count()
+
+    log.info(
+        "writing_output_records",
+        output_path=output_base_path,
+        record_count=count,
+    )
 
     (
         df.write
@@ -31,4 +37,8 @@ def write_output(df: DataFrame, output_base_path: str) -> None:
         .parquet(output_base_path)
     )
 
-    logger.info("Output write completed successfully")
+    log.info(
+        "output_write_completed",
+        output_path=output_base_path,
+        record_count=count,
+    )

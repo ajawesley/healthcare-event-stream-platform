@@ -4,9 +4,22 @@ import (
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
+	"github.com/ajawes/hesp/internal/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
-func TestTransformationRouter_TableDriven(t *testing.T) {
+// ------------------------------------------------------------
+// Observability initialization for tests
+// ------------------------------------------------------------
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+}
+
+func TestTransformationRouter(t *testing.T) {
 	r := NewTransformationRouter()
 
 	tests := []struct {
@@ -24,6 +37,7 @@ func TestTransformationRouter_TableDriven(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := r.TransformerFor(tt.format)
+
 			if tt.expectErr && err == nil {
 				t.Fatalf("expected error, got nil")
 			}

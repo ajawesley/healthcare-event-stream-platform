@@ -1,12 +1,15 @@
 package transformer
 
 import (
+	"context"
 	"errors"
-	"log/slog" // or your logger of choice
+	"fmt"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 var ErrFHIRUnsupported = errors.New("unsupported FHIR resourceType")
@@ -18,27 +21,30 @@ func NewFHIRTransformer() *FHIRTransformer {
 }
 
 func (t *FHIRTransformer) Transform(ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
+	ctx := context.Background()
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "transformer"),
+		zap.String("transformer", "fhir"),
+		zap.String("event_id", env.EventID),
+		zap.String("source_system", env.SourceSystem),
+		zap.String("format", string(ne.Format)),
+	)
+
 	if ne.Format != config.FormatFHIR {
-		slog.Error("FHIR transform rejected: wrong format",
-			"event_id", env.EventID,
-			"format", ne.Format,
-		)
-		return nil, ErrFHIRUnsupported
+		err := fmt.Errorf("unsupported format: %s", ne.Format)
+		log.Error("fhir_transform_wrong_format", zap.Error(err))
+		return nil, err
 	}
 
 	resourceType := asString(ne.Fields["fhir.resource_type"])
 
-	slog.Info("FHIR transform starting",
-		"event_id", env.EventID,
-		"resource_type", resourceType,
-		"fields_present", keys(ne.Fields),
+	log.Info("fhir_transform_start",
+		zap.String("resource_type", resourceType),
+		zap.Int("field_count", len(ne.Fields)),
 	)
 
 	if resourceType == "" {
-		slog.Error("FHIR transform failed: missing resourceType",
-			"event_id", env.EventID,
-			"fields_present", keys(ne.Fields),
-		)
+		log.Error("fhir_transform_missing_resource_type")
 		return nil, ErrFHIRUnsupported
 	}
 
@@ -53,36 +59,36 @@ func (t *FHIRTransformer) Transform(ne *models.NormalizedEvent, env api.Envelope
 	switch resourceType {
 
 	case "Patient":
-		slog.Info("FHIR Patient transform", "event_id", env.EventID)
+		log.Info("fhir_transform_patient")
 		ce.Patient = &models.CanonicalPatient{
 			ID: asString(ne.Fields["fhir.id"]),
 		}
 
 	case "Encounter":
-		slog.Info("FHIR Encounter transform", "event_id", env.EventID)
+		log.Info("fhir_transform_encounter")
 		ce.Encounter = &models.CanonicalEncounter{
 			ID:   asString(ne.Fields["fhir.id"]),
 			Type: asString(ne.Fields["fhir.class.code"]),
 		}
 
 	case "Observation":
-		slog.Info("FHIR Observation transform", "event_id", env.EventID)
+		log.Info("fhir_transform_observation")
 		ce.Observation = &models.CanonicalObservation{
 			Code:  asString(ne.Fields["fhir.code"]),
 			Value: ne.Fields["fhir.value"],
 		}
 
 	default:
-		slog.Error("FHIR transform failed: unsupported resourceType",
-			"event_id", env.EventID,
-			"resource_type", resourceType,
+		err := fmt.Errorf("unsupported resourceType: %s", resourceType)
+		log.Error("fhir_transform_unsupported_resource_type",
+			zap.String("resource_type", resourceType),
+			zap.Error(err),
 		)
-		return nil, errors.New("unsupported resourceType: " + resourceType) // ErrFHIRUnsupported
+		return nil, err
 	}
 
-	slog.Info("FHIR transform complete",
-		"event_id", env.EventID,
-		"resource_type", resourceType,
+	log.Info("fhir_transform_complete",
+		zap.String("resource_type", resourceType),
 	)
 
 	return ce, nil

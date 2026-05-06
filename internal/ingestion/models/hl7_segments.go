@@ -1,9 +1,12 @@
 package models
 
 import (
+	"context"
 	"errors"
-	"log"
 	"strings"
+
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 var (
@@ -19,20 +22,25 @@ type HL7Message struct {
 }
 
 func ParseHL7(raw string) (*HL7Message, error) {
+	ctx := context.Background()
 
-	// Log raw HL7 input (truncate for safety)
+	log := observability.WithTrace(ctx)
+
+	log = log.With(zap.String("component", "hl7_parser"))
+
+	// Preview raw HL7 (truncate for safety)
 	preview := raw
 	if len(preview) > 300 {
 		preview = preview[:300] + "...(truncated)"
 	}
-	log.Printf(`hl7_parse_input raw_preview="%s"`, preview)
+	log.Debug("hl7_parse_input", zap.String("raw_preview", preview))
 
 	// Normalize line endings
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	raw = strings.ReplaceAll(raw, "\r", "\n")
 
 	lines := strings.Split(raw, "\n")
-	log.Printf(`hl7_parse_lines count=%d`, len(lines))
+	log.Debug("hl7_parse_lines", zap.Int("count", len(lines)))
 
 	msg := &HL7Message{}
 
@@ -43,41 +51,48 @@ func ParseHL7(raw string) (*HL7Message, error) {
 		}
 
 		fields := strings.Split(trimmed, "|")
+		segment := fields[0]
 
-		// Log each segment header
-		if len(fields) > 0 {
-			log.Printf(`hl7_segment index=%d segment="%s" field_count=%d`, i, fields[0], len(fields))
-		}
+		log.Debug("hl7_segment",
+			zap.Int("index", i),
+			zap.String("segment", segment),
+			zap.Int("field_count", len(fields)),
+		)
 
-		switch fields[0] {
+		switch segment {
 		case "MSH":
 			msg.MSH = fields
-			log.Printf(`hl7_segment_msh fields=%v`, fields)
+			log.Debug("hl7_segment_msh", zap.Any("fields", fields))
+
 		case "PID":
 			msg.PID = fields
-			log.Printf(`hl7_segment_pid fields=%v`, fields)
+			log.Debug("hl7_segment_pid", zap.Any("fields", fields))
+
 		case "PV1":
 			msg.PV1 = fields
-			log.Printf(`hl7_segment_pv1 fields=%v`, fields)
+			log.Debug("hl7_segment_pv1", zap.Any("fields", fields))
 		}
 	}
 
 	// Validate required segments
 	if msg.MSH == nil {
-		log.Printf(`hl7_parse_error error="missing MSH segment"`)
+		log.Error("hl7_parse_error", zap.String("error", ErrHL7MissingMSH.Error()))
 		return nil, ErrHL7MissingMSH
 	}
 	if msg.PID == nil {
-		log.Printf(`hl7_parse_error error="missing PID segment"`)
+		log.Error("hl7_parse_error", zap.String("error", ErrHL7MissingPID.Error()))
 		return nil, ErrHL7MissingPID
 	}
 	if msg.PV1 == nil {
-		log.Printf(`hl7_parse_error error="missing PV1 segment"`)
+		log.Error("hl7_parse_error", zap.String("error", ErrHL7MissingPV1.Error()))
 		return nil, ErrHL7MissingPV1
 	}
 
-	log.Printf(`hl7_parse_success msh_len=%d pid_len=%d pv1_len=%d`,
-		len(msg.MSH), len(msg.PID), len(msg.PV1))
+	log.Info("hl7_parse_success",
+		zap.Int("msh_len", len(msg.MSH)),
+		zap.Int("pid_len", len(msg.PID)),
+		zap.Int("pv1_len", len(msg.PV1)),
+	)
 
 	return msg, nil
 }
