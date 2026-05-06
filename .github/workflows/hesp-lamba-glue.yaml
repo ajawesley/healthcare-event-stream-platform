@@ -59,6 +59,13 @@ jobs:
         with:
           name: lambda-zip
           path: cmd/lambda
+          
+      - name: Inspect Lambda binary
+        run: |
+          cd cmd/lambda
+          unzip -l lambda.zip
+          unzip lambda.zip bootstrap
+          file bootstrap
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
