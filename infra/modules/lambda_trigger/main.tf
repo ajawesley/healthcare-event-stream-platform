@@ -106,6 +106,29 @@ resource "aws_iam_policy" "lambda_s3_read" {
   })
 }
 
+############################################################
+# IAM Policy: Allow Lambda to Decrypt with KMS
+############################################################
+
+resource "aws_iam_policy" "lambda_kms" {
+  name = "${var.app_name}-${var.environment}-lambda-kms"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = var.kms_key_arn
+      }
+    ]
+  })
+}
+
+
 ############################################
 # Attach Policies to Lambda Role
 ############################################
@@ -127,4 +150,9 @@ resource "aws_iam_role_policy_attachment" "lambda_logging_attach" {
 resource "aws_iam_role_policy_attachment" "lambda_s3_read_attach" {
   role       = var.lambda_role_name
   policy_arn = aws_iam_policy.lambda_s3_read.arn
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_kms_attach" {
+  role       = var.lambda_role_name
+  policy_arn = aws_iam_policy.lambda_kms.arn
 }
