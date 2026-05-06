@@ -34,6 +34,10 @@ variable "desired_count" {
   type = number
 }
 
+variable "script_bucket" {
+  type = string
+}
+
 variable "glue_script_s3_path" {
   type = string
 }
