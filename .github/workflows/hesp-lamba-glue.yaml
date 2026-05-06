@@ -59,10 +59,11 @@ jobs:
         with:
           name: lambda-zip
           path: cmd/lambda
-          
+
       - name: Inspect Lambda binary
         run: |
           cd cmd/lambda
+          rm -f bootstrap
           unzip -l lambda.zip
           unzip lambda.zip bootstrap
           file bootstrap
