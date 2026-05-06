@@ -1,46 +1,8 @@
-package dispatcher
-
-import (
-	"bytes"
-	"context"
-	"crypto/md5"
-	"encoding/base64"
-	"fmt"
-	"time"
-
-	"log/slog"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-
-	"github.com/ajawes/hesp/internal/ingestion/api"
-	"github.com/ajawes/hesp/internal/ingestion/models"
-)
-
-type S3Dispatcher struct {
-	client    *s3.Client
-	bucket    string
-	prefix    string
-	kmsKeyARN string
-	logger    *slog.Logger
-}
-
-func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string, logger *slog.Logger) *S3Dispatcher {
-	return &S3Dispatcher{
-		client:    client,
-		bucket:    bucket,
-		prefix:    prefix,
-		kmsKeyARN: kmsKeyARN,
-		logger:    logger,
-	}
-}
-
 func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	ctx := context.Background()
 	start := time.Now()
 
-	// Build S3 key using event metadata
+	// Build S3 key
 	fullKey := fmt.Sprintf(
 		"%s/%s/%s/%s.json",
 		d.prefix,
@@ -49,8 +11,27 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		event.EventID,
 	)
 
-	// Compute MD5 checksum
-	sum := md5.Sum(raw)
+	// Build the full S3 object payload
+	obj := map[string]any{
+		"envelope":        env,
+		"canonical_event": event,
+		"raw":             string(raw),
+		"dispatched_at":   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Marshal the full object
+	payload, err := json.Marshal(obj)
+	if err != nil {
+		d.logger.Error("json_marshal_failed",
+			slog.String("bucket", d.bucket),
+			slog.String("key", fullKey),
+			slog.String("error", err.Error()),
+		)
+		return fmt.Errorf("marshal s3 object: %w", err)
+	}
+
+	// Compute MD5 over EXACT payload bytes
+	sum := md5.Sum(payload)
 	md5b64 := base64.StdEncoding.EncodeToString(sum[:])
 
 	d.logger.Info("s3_dispatch_start",
@@ -61,17 +42,18 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		slog.String("source_system", env.SourceSystem),
 		slog.String("kms_key_arn", d.kmsKeyARN),
 		slog.String("md5", md5b64),
-		slog.Int("raw_bytes", len(raw)),
+		slog.Int("payload_bytes", len(payload)),
 	)
 
 	// Write to S3 with SSE-KMS
-	_, err := d.client.PutObject(ctx, &s3.PutObjectInput{
+	_, err = d.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               aws.String(d.bucket),
 		Key:                  aws.String(fullKey),
-		Body:                 bytes.NewReader(raw),
+		Body:                 bytes.NewReader(payload),
 		ContentMD5:           aws.String(md5b64),
 		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
 		SSEKMSKeyId:          aws.String(d.kmsKeyARN),
+		ContentType:          aws.String("application/json"),
 	})
 	if err != nil {
 		d.logger.Error("s3_dispatch_failed",
