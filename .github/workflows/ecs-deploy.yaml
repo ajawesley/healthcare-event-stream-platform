@@ -1,5 +1,9 @@
 name: Deploy HESP ECS Service
 
+permissions:
+  id-token: write
+  contents: read
+
 on:
   push:
     branches: [ "main" ]
@@ -20,11 +24,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<DEPLOY_ROLE>
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+          audience: sts.amazonaws.com
+          output-env-credentials: true
 
       - name: Login to ECR
         run: |
@@ -67,11 +73,13 @@ jobs:
         id: tag
         run: echo "tag=$(cat image-tag.txt)" >> $GITHUB_OUTPUT
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<DEPLOY_ROLE>
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
+          audience: sts.amazonaws.com
+          output-env-credentials: true
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
