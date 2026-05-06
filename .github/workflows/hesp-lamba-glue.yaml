@@ -35,6 +35,13 @@ jobs:
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ${LAMBDA_BINARY}
           zip ${LAMBDA_ZIP} ${LAMBDA_BINARY}
 
+      - name: Debug ZIP
+        run: |
+          echo "Listing repo root:"
+          ls -l .
+          echo "Listing cmd/lambda:"
+          ls -l cmd/lambda
+          
       - name: Upload Lambda artifact
         uses: actions/upload-artifact@v4
         with:
