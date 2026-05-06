@@ -259,7 +259,7 @@ module "glue_job" {
 
 resource "null_resource" "build_lambda" {
   triggers = {
-    src_hash = filemd5("${path.root}/cmd/lambda/main.go")
+    src_hash = filemd5("${path.root}/../cmd/lambda/main.go")
   }
 
   provisioner "local-exec" {
@@ -287,7 +287,7 @@ module "lambda_trigger" {
   raw_bucket_name  = module.s3.bucket_name
   lambda_role_arn  = module.iam.lambda_role_arn
   lambda_role_name = module.iam.lambda_role_name
-  lambda_zip_path  = "${path.root}/cmd/lambda/lambda.zip"
+  lambda_zip_path  = "${path.root}/../cmd/lambda/lambda.zip"
   tags             = local.common_tags
   kms_key_arn      = module.s3.kms_key_arn
 
