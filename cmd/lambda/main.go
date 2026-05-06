@@ -50,7 +50,7 @@ func handler(ctx context.Context, s3Event events.S3Event) error {
 	log.Printf("Event read: %v", event)
 
 	_, err = glueClient.StartJobRun(ctx, &glue.StartJobRunInput{
-		JobName: aws.String("hesp-demo-job"),
+		JobName: aws.String("hesp-dev-job"),
 		Arguments: map[string]string{
 			"--input_s3_key": fmt.Sprintf("s3://%s/%s", bucket, key),
 		},
