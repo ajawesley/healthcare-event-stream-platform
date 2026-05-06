@@ -41,3 +41,7 @@ variable "lambda_role_name" {
 variable "lambda_zip_path" {
   type = string
 }
+
+variable "kms_key_arn" {
+  type      = string
+}

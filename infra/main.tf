@@ -289,6 +289,7 @@ module "lambda_trigger" {
   lambda_role_name = module.iam.lambda_role_name
   lambda_zip_path  = "${path.module}/../cmd/lambda/lambda.zip"
   tags             = local.common_tags
+  kms_key_arn      = module.s3.kms_key_arn
 
   depends_on = [null_resource.build_lambda]
 }
