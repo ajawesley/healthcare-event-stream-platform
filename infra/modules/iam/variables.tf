@@ -10,10 +10,6 @@ variable "cost_center" {
   type = string
 }
 
-variable "bucket_arn" {
-  type = string
-}
-
 variable "kms_key_arn" {
   type = string
 }
@@ -25,3 +21,16 @@ variable "log_group_arn" {
 variable "tags" {
   type = map(string)
 }
+
+variable "raw_bucket_arn" {
+  type = string
+}
+
+variable "script_bucket_arn" {
+  type = string
+}
+
+variable "golden_bucket_arn" {
+  type = string
+}
+

@@ -22,28 +22,6 @@ resource "aws_cloudwatch_log_group" "glue" {
 }
 
 ############################################
-# (Optional) Glue Security Configuration
-############################################
-# resource "aws_glue_security_configuration" "this" {
-#   name = "${var.app_name}-${var.environment}-glue-sec"
-#
-#   encryption_configuration {
-#     cloudwatch_encryption {
-#       cloudwatch_encryption_mode = "SSE-KMS"
-#       kms_key_arn                = var.kms_key_arn
-#     }
-#     job_bookmarks_encryption {
-#       job_bookmarks_encryption_mode = "CSE-KMS"
-#       kms_key_arn                   = var.kms_key_arn
-#     }
-#     s3_encryption {
-#       s3_encryption_mode = "SSE-KMS"
-#       kms_key_arn        = var.kms_key_arn
-#     }
-#   }
-# }
-
-############################################
 # Glue Job
 ############################################
 
@@ -53,15 +31,16 @@ resource "aws_glue_job" "this" {
 
   command {
     name            = "glueetl"
-    script_location = var.script_s3_path
+    script_location = "s3://${var.script_bucket}/scripts/glue_job.py"
     python_version  = "3"
   }
 
   default_arguments = {
-    "--TempDir"                          = var.temp_dir
+    "--TempDir"                          = "s3://${var.script_bucket}/tmp/"
     "--enable-continuous-cloudwatch-log" = "true"
     "--continuous-log-logGroup"          = var.log_group_name
     "--job-language"                     = "python"
+    "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
   }
 
   glue_version      = "4.0"
@@ -69,8 +48,6 @@ resource "aws_glue_job" "this" {
   worker_type       = "G.1X"
   timeout           = 60
   max_retries       = 1
-
-  # security_configuration = aws_glue_security_configuration.this.name
 
   tags = local.base_tags
 

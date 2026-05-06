@@ -22,12 +22,19 @@ variable "glue_role_arn" {
   type = string
 }
 
+variable "script_bucket" {
+  description = "S3 bucket containing Glue ETL scripts"
+  type        = string
+}
+
 variable "script_s3_path" {
-  type = string
+  description = "Full S3 path to the Glue job script"
+  type        = string
 }
 
 variable "temp_dir" {
-  type = string
+  description = "S3 temp directory for Glue job"
+  type        = string
 }
 
 variable "log_group_name" {
