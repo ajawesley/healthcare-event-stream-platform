@@ -24,8 +24,8 @@ func main() {
 	observability.InitMetrics("hesp-lambda", "dev")
 	observability.InitTracing("hesp-lambda", "v1.0.0", "dev")
 
-	// Wrap handler with tracing + structured logging
-	lambda.Start(observability.LambdaHandler(handler))
+	// Correct generic wrapper for typed handler
+	lambda.Start(observability.LambdaHandler[events.S3Event, string](handler))
 }
 
 func handler(ctx context.Context, s3Event events.S3Event) (string, error) {
