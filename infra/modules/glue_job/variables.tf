@@ -46,3 +46,12 @@ variable "kms_key_arn" {
   default   = null
   nullable  = true
 }
+
+# NEW — required for Glue arguments
+variable "raw_bucket" {
+  type = string
+}
+
+variable "golden_bucket" {
+  type = string
+}
