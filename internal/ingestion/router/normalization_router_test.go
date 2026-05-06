@@ -4,9 +4,22 @@ import (
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
+	"github.com/ajawes/hesp/internal/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
-func TestNormalizationRouter_TableDriven(t *testing.T) {
+// ------------------------------------------------------------
+// Observability initialization for tests
+// ------------------------------------------------------------
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+}
+
+func TestNormalizationRouter(t *testing.T) {
 	r := NewNormalizationRouter()
 
 	tests := []struct {

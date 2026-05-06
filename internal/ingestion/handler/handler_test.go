@@ -12,27 +12,54 @@ import (
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+
+	"github.com/ajawes/hesp/internal/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
-type CanonicalFakeRouter struct {
-	Canonical *models.CanonicalEvent
-	Err       error
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 }
 
-func (f *CanonicalFakeRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
-	if f.Err != nil {
-		return nil, f.Err
-	}
-	return f.Canonical, nil
+// -----------------------------------------------------------------------------
+// Shared Test Helpers
+// -----------------------------------------------------------------------------
+
+type FakeRouter struct {
+	resp          *models.CanonicalEvent
+	err           error
+	calledPayload []byte
+	calledEnv     api.Envelope
 }
 
-func TestHandler_TableDriven(t *testing.T) {
+func (f *FakeRouter) Route(payload []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	f.calledPayload = payload
+	f.calledEnv = env
+	return f.resp, f.err
+}
+
+func mustJSONMarshal(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// -----------------------------------------------------------------------------
+// Unified Table-Driven Test Suite
+// -----------------------------------------------------------------------------
+
+func TestHandler(t *testing.T) {
+
+	now := time.Now().UTC()
 
 	tests := []struct {
 		name           string
 		body           map[string]any
-		router         *CanonicalFakeRouter
+		router         *FakeRouter
 		expectedStatus int
+		verify         func(t *testing.T, fake *FakeRouter, rec *httptest.ResponseRecorder)
 	}{
 		{
 			name: "missing payload",
@@ -40,11 +67,11 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   time.Now().UTC(),
+					ProducedAt:   now,
 					SourceSystem: "test",
 				}),
 			},
-			router:         &CanonicalFakeRouter{},
+			router:         &FakeRouter{},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
@@ -53,21 +80,21 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   time.Time{}, // invalid time
+					ProducedAt:   time.Time{}, // invalid
 					SourceSystem: "test",
 				}),
 				"payload": json.RawMessage(`"x"`),
 			},
-			router:         &CanonicalFakeRouter{},
+			router:         &FakeRouter{},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name: "invalid envelope structure",
 			body: map[string]any{
-				"envelope": 123,
+				"envelope": 123, // not JSON object
 				"payload":  json.RawMessage(`"x"`),
 			},
-			router:         &CanonicalFakeRouter{},
+			router:         &FakeRouter{},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
@@ -76,38 +103,106 @@ func TestHandler_TableDriven(t *testing.T) {
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   time.Time{}, // invalid time to trigger envelope validation failure
+					ProducedAt:   now,
 					SourceSystem: "test",
 				}),
 				"payload": json.RawMessage(`"x"`),
 			},
-			router:         &CanonicalFakeRouter{Err: errors.New("router failed")},
+			router:         &FakeRouter{err: errors.New("router failed")},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			name: "valid request",
+			name: "normalization path",
 			body: map[string]any{
 				"envelope": mustJSONMarshal(api.Envelope{
 					EventID:      "evt-1",
 					EventType:    "ingest.test",
-					ProducedAt:   time.Now().UTC(),
+					ProducedAt:   now,
 					SourceSystem: "test",
 				}),
 				"payload": json.RawMessage(`"x"`),
 			},
-			router: &CanonicalFakeRouter{
-				Canonical: &models.CanonicalEvent{
-					EventID:      "evt-1",
+			router: &FakeRouter{
+				resp: &models.CanonicalEvent{
+					Format: config.FormatGeneric,
+				},
+			},
+			expectedStatus: http.StatusAccepted,
+			verify: func(t *testing.T, fake *FakeRouter, rec *httptest.ResponseRecorder) {
+				if string(fake.calledPayload) != `"x"` {
+					t.Fatalf("expected payload \"x\", got %s", string(fake.calledPayload))
+				}
+				if fake.calledEnv.EventID != "evt-1" {
+					t.Fatalf("expected envelope event_id evt-1, got %s", fake.calledEnv.EventID)
+				}
+			},
+		},
+		{
+			name: "transformation path",
+			body: map[string]any{
+				"envelope": mustJSONMarshal(api.Envelope{
+					EventID:      "evt-2",
+					EventType:    "ingest.transform",
+					ProducedAt:   now,
+					SourceSystem: "test-transform",
+				}),
+				"payload": json.RawMessage(`"y"`),
+			},
+			router: &FakeRouter{
+				resp: &models.CanonicalEvent{
+					Format: config.FormatGeneric,
+				},
+			},
+			expectedStatus: http.StatusAccepted,
+			verify: func(t *testing.T, fake *FakeRouter, rec *httptest.ResponseRecorder) {
+				if string(fake.calledPayload) != `"y"` {
+					t.Fatalf("expected payload \"y\", got %s", string(fake.calledPayload))
+				}
+				if fake.calledEnv.EventID != "evt-2" {
+					t.Fatalf("expected envelope event_id evt-2, got %s", fake.calledEnv.EventID)
+				}
+			},
+		},
+		{
+			name: "valid request end-to-end",
+			body: map[string]any{
+				"envelope": mustJSONMarshal(api.Envelope{
+					EventID:      "evt-3",
+					EventType:    "ingest.test",
+					ProducedAt:   now,
+					SourceSystem: "test",
+				}),
+				"payload": json.RawMessage(`"z"`),
+			},
+			router: &FakeRouter{
+				resp: &models.CanonicalEvent{
+					EventID:      "evt-3",
 					SourceSystem: "test",
 					Format:       config.FormatGeneric,
 				},
 			},
 			expectedStatus: http.StatusAccepted,
+			verify: func(t *testing.T, fake *FakeRouter, rec *httptest.ResponseRecorder) {
+				var resp api.IngestResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("invalid JSON response: %v", err)
+				}
+				if resp.EventID != "evt-3" {
+					t.Fatalf("expected EventID evt-3, got %s", resp.EventID)
+				}
+				if resp.Format != "generic" {
+					t.Fatalf("expected Format generic, got %s", resp.Format)
+				}
+			},
 		},
 	}
 
+	// -------------------------------------------------------------------------
+	// Execute table
+	// -------------------------------------------------------------------------
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			h := NewHandler(
 				WithRouter(tt.router),
 			)
@@ -121,11 +216,10 @@ func TestHandler_TableDriven(t *testing.T) {
 			if rec.Code != tt.expectedStatus {
 				t.Fatalf("expected %d, got %d", tt.expectedStatus, rec.Code)
 			}
+
+			if tt.verify != nil {
+				tt.verify(t, tt.router, rec)
+			}
 		})
 	}
-}
-
-func mustJSONMarshal(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
 }

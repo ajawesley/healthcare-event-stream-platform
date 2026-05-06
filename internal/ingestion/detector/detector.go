@@ -1,10 +1,12 @@
 package detector
 
 import (
+	"context"
 	"encoding/json"
-	"log"
 
 	"github.com/ajawes/hesp/internal/config"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type DetectionRule struct {
@@ -31,13 +33,22 @@ func NewDetector() Detector {
 }
 
 func (d *detectorImpl) Detect(payload []byte) config.Format {
+	ctx := context.Background()
 
-	// Log raw payload preview (no trimming)
+	// SAFETY: ensure logger is never nil
+	log := observability.WithTrace(ctx)
+	if log == nil {
+		log = zap.NewNop()
+	}
+
+	log = log.With(zap.String("component", "detector"))
+
+	// Log preview
 	preview := payload
 	if len(preview) > 200 {
 		preview = preview[:200]
 	}
-	log.Printf(`detector_input payload_preview="%s"`, string(preview))
+	log.Debug("detector_input", zap.String("payload_preview", string(preview)))
 
 	for _, rule := range d.rules {
 
@@ -46,48 +57,64 @@ func (d *detectorImpl) Detect(payload []byte) config.Format {
 			if len(payload) >= len(rule.Prefix) &&
 				string(payload[:len(rule.Prefix)]) == rule.Prefix {
 
-				log.Printf(`detector_match rule="%s" type="prefix" prefix="%s" format="%s"`,
-					rule.Name, rule.Prefix, rule.Format)
+				log.Info("detector_match_prefix",
+					zap.String("rule", rule.Name),
+					zap.String("prefix", rule.Prefix),
+					zap.String("format", string(rule.Format)),
+				)
 				return rule.Format
 			}
 
-			log.Printf(`detector_no_match rule="%s" type="prefix" prefix="%s"`,
-				rule.Name, rule.Prefix)
+			log.Debug("detector_no_match_prefix",
+				zap.String("rule", rule.Name),
+				zap.String("prefix", rule.Prefix),
+			)
 		}
 
 		// --- JSON key rule ---
 		if rule.ContainsKey != "" {
-			if looksLikeJSONWithKeyLogged(payload, rule.ContainsKey, rule.Name) {
-				log.Printf(`detector_match rule="%s" type="json_key" key="%s" format="%s"`,
-					rule.Name, rule.ContainsKey, rule.Format)
+			if looksLikeJSONWithKeyLogged(payload, rule.ContainsKey, rule.Name, log) {
+				log.Info("detector_match_json_key",
+					zap.String("rule", rule.Name),
+					zap.String("key", rule.ContainsKey),
+					zap.String("format", string(rule.Format)),
+				)
 				return rule.Format
 			}
 
-			log.Printf(`detector_no_match rule="%s" type="json_key" key="%s"`,
-				rule.Name, rule.ContainsKey)
+			log.Debug("detector_no_match_json_key",
+				zap.String("rule", rule.Name),
+				zap.String("key", rule.ContainsKey),
+			)
 		}
 	}
 
-	log.Printf(`detector_fallback format="generic"`)
+	log.Info("detector_fallback", zap.String("format", string(config.FormatGeneric)))
 	return config.FormatGeneric
 }
 
-func looksLikeJSONWithKeyLogged(b []byte, key string, ruleName string) bool {
+func looksLikeJSONWithKeyLogged(b []byte, key string, ruleName string, log *zap.Logger) bool {
 	var data any
 	if err := json.Unmarshal(b, &data); err != nil {
-		log.Printf(`detector_json_unmarshal_failed rule="%s" key="%s" error="%v"`,
-			ruleName, key, err)
+		log.Debug("detector_json_unmarshal_failed",
+			zap.String("rule", ruleName),
+			zap.String("key", key),
+			zap.Error(err),
+		)
 		return false
 	}
-	return containsKeyRecursiveLogged(data, key, ruleName, 0)
+	return containsKeyRecursiveLogged(data, key, ruleName, 0, log)
 }
 
 const maxJSONDepth = 10
 
-func containsKeyRecursiveLogged(v any, key string, ruleName string, depth int) bool {
+func containsKeyRecursiveLogged(v any, key string, ruleName string, depth int, log *zap.Logger) bool {
 	if depth > maxJSONDepth {
-		log.Printf(`detector_json_depth_exceeded rule="%s" key="%s" depth=%d`,
-			ruleName, key, depth)
+		log.Debug("detector_json_depth_exceeded",
+			zap.String("rule", ruleName),
+			zap.String("key", key),
+			zap.Int("depth", depth),
+		)
 		return false
 	}
 
@@ -95,12 +122,15 @@ func containsKeyRecursiveLogged(v any, key string, ruleName string, depth int) b
 
 	case map[string]any:
 		if _, ok := val[key]; ok {
-			log.Printf(`detector_json_key_found rule="%s" key="%s" depth=%d`,
-				ruleName, key, depth)
+			log.Debug("detector_json_key_found",
+				zap.String("rule", ruleName),
+				zap.String("key", key),
+				zap.Int("depth", depth),
+			)
 			return true
 		}
 		for _, child := range val {
-			if containsKeyRecursiveLogged(child, key, ruleName, depth+1) {
+			if containsKeyRecursiveLogged(child, key, ruleName, depth+1, log) {
 				return true
 			}
 		}
@@ -108,7 +138,7 @@ func containsKeyRecursiveLogged(v any, key string, ruleName string, depth int) b
 
 	case []any:
 		for _, child := range val {
-			if containsKeyRecursiveLogged(child, key, ruleName, depth+1) {
+			if containsKeyRecursiveLogged(child, key, ruleName, depth+1, log) {
 				return true
 			}
 		}

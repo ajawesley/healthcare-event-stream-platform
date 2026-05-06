@@ -1,13 +1,15 @@
 package normalizer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type FHIRNormalizer struct{}
@@ -17,25 +19,26 @@ func NewFHIRNormalizer() *FHIRNormalizer {
 }
 
 func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	logger := slog.Default().With(
-		"component", "fhir_normalizer",
-		"event_id", env.EventID,
+	ctx := context.Background()
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "fhir_normalizer"),
+		zap.String("event_id", env.EventID),
 	)
 
-	logger.Info("starting FHIR normalization: field extraction and mapping")
+	log.Info("fhir_normalization_start")
 
 	var fhir map[string]any
 	if err := json.Unmarshal(raw, &fhir); err != nil {
-		logger.Error("FHIR parse failed", "error", err)
+		log.Error("fhir_parse_failed", zap.Error(err))
 		return nil, errors.New("invalid fhir json: " + err.Error())
 	}
 
 	resourceType, _ := fhir["resourceType"].(string)
 	id, _ := fhir["id"].(string)
 
-	logger.Info("parsed FHIR fields",
-		"resource_type", resourceType,
-		"id", id,
+	log.Debug("fhir_parsed_fields",
+		zap.String("resource_type", resourceType),
+		zap.String("id", id),
 	)
 
 	ne := models.NewNormalizedEvent(config.FormatFHIR, raw)
@@ -55,6 +58,7 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 				if coding, ok := codingArr[0].(map[string]any); ok {
 					if code, ok := coding["code"].(string); ok {
 						ne.Fields["fhir.code"] = code
+						log.Debug("fhir_observation_code_extracted", zap.String("code", code))
 					}
 				}
 			}
@@ -64,6 +68,7 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 		if vq, ok := fhir["valueQuantity"].(map[string]any); ok {
 			if val, ok := vq["value"]; ok {
 				ne.Fields["fhir.value"] = val
+				log.Debug("fhir_observation_value_extracted", zap.Any("value", val))
 			}
 		}
 	}
@@ -72,11 +77,13 @@ func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Normal
 	if meta, ok := fhir["meta"].(map[string]any); ok {
 		if profile, ok := meta["profile"]; ok {
 			ne.Metadata["meta.profile"] = profile
+			log.Debug("fhir_metadata_profile_extracted", zap.Any("profile", profile))
 		}
 	}
 
-	logger.Info("FHIR normalization complete",
-		"fields", ne.Fields,
+	log.Info("fhir_normalization_complete",
+		zap.Any("fields", ne.Fields),
+		zap.Any("metadata", ne.Metadata),
 	)
 
 	return ne, nil
