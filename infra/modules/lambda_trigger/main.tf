@@ -83,6 +83,30 @@ resource "aws_iam_policy" "lambda_logging_policy" {
 }
 
 ############################################
+# IAM Policy: Allow Lambda to Read S3
+############################################
+resource "aws_iam_policy" "lambda_s3_read" {
+  name = "${var.app_name}-${var.environment}-lambda-s3-read"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.raw_bucket_name}",
+          "arn:aws:s3:::${var.raw_bucket_name}/*"
+        ]
+      }
+    ]
+  })
+}
+
+############################################
 # Attach Policies to Lambda Role
 ############################################
 
@@ -98,4 +122,9 @@ resource "aws_iam_role_policy_attachment" "lambda_logging_attach" {
   policy_arn = aws_iam_policy.lambda_logging_policy.arn
 
   depends_on = [aws_iam_policy.lambda_logging_policy]
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3_read_attach" {
+  role       = var.lambda_role_name
+  policy_arn = aws_iam_policy.lambda_s3_read.arn
 }
