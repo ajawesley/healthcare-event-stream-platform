@@ -6,7 +6,20 @@ import (
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// ------------------------------------------------------------
+// Observability initialization for tests
+// ------------------------------------------------------------
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+}
 
 func TestX12Transformer(t *testing.T) {
 	tests := []struct {

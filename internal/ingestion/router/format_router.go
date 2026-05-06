@@ -1,8 +1,8 @@
 package router
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
@@ -10,6 +10,8 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/dispatcher"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 	"github.com/ajawes/hesp/internal/ingestion/pipeline"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type FormatRouter struct {
@@ -49,8 +51,12 @@ func (r *FormatRouter) SetDispatcher(d dispatcher.Dispatcher) {
 	r.dispatcher = d
 }
 
+// -----------------------------------------------------------------------------
 // ⭐ Correct signature: Route(raw, env)
+// -----------------------------------------------------------------------------
 func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	ctx := context.Background()
+	log := observability.WithTrace(ctx)
 
 	// ----------------------------------------------------------------------
 	// 0. PRE-SANITIZE FIRST
@@ -67,23 +73,20 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		sanitizedQuoted = sanitizedQuoted[:4000] + `"...(truncated)`
 	}
 
-	log.Printf(
-		`router_stage="presanitize" event_id="%s" raw=%s sanitized=%s`,
-		env.EventID,
-		rawQuoted,
-		sanitizedQuoted,
+	log.Debug("router_presanitize",
+		zap.String("event_id", env.EventID),
+		zap.String("raw", rawQuoted),
+		zap.String("sanitized", sanitizedQuoted),
 	)
 
 	// ----------------------------------------------------------------------
-	// 1. DETECT FORMAT (using sanitized payload)
+	// 1. DETECT FORMAT
 	// ----------------------------------------------------------------------
 	format := r.detector.Detect(sanitized)
 
-	log.Printf(
-		`router_stage="detect" event_id="%s" detected_format="%s" detector_input=%s`,
-		env.EventID,
-		format,
-		sanitizedQuoted,
+	log.Debug("router_detect",
+		zap.String("event_id", env.EventID),
+		zap.String("format", string(format)),
 	)
 
 	// ----------------------------------------------------------------------
@@ -91,14 +94,16 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 	// ----------------------------------------------------------------------
 	normer, err := r.normalizer.NormalizerFor(format)
 	if err != nil {
-		log.Printf(`router_stage="normalizer_lookup_error" event_id="%s" error="%v"`, env.EventID, err)
+		log.Error("router_normalizer_lookup_error",
+			zap.String("event_id", env.EventID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("normalizer lookup failed: %w", err)
 	}
 
-	log.Printf(
-		`router_stage="normalizer_lookup" event_id="%s" normalizer="%T"`,
-		env.EventID,
-		normer,
+	log.Debug("router_normalizer_lookup",
+		zap.String("event_id", env.EventID),
+		zap.String("normalizer", fmt.Sprintf("%T", normer)),
 	)
 
 	// ----------------------------------------------------------------------
@@ -106,14 +111,16 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 	// ----------------------------------------------------------------------
 	norm, err := normer.Normalize(sanitized, env)
 	if err != nil {
-		log.Printf(`router_stage="normalize_error" event_id="%s" error="%v"`, env.EventID, err)
+		log.Error("router_normalize_error",
+			zap.String("event_id", env.EventID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("normalization failed: %w", err)
 	}
 
-	log.Printf(
-		`router_stage="normalize" event_id="%s" normalized="%+v"`,
-		env.EventID,
-		norm,
+	log.Debug("router_normalize",
+		zap.String("event_id", env.EventID),
+		zap.Any("normalized", norm),
 	)
 
 	// ----------------------------------------------------------------------
@@ -121,14 +128,16 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 	// ----------------------------------------------------------------------
 	xform, err := r.transformer.TransformerFor(format)
 	if err != nil {
-		log.Printf(`router_stage="transformer_lookup_error" event_id="%s" error="%v"`, env.EventID, err)
+		log.Error("router_transformer_lookup_error",
+			zap.String("event_id", env.EventID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("transformer lookup failed: %w", err)
 	}
 
-	log.Printf(
-		`router_stage="transformer_lookup" event_id="%s" transformer="%T"`,
-		env.EventID,
-		xform,
+	log.Debug("router_transformer_lookup",
+		zap.String("event_id", env.EventID),
+		zap.String("transformer", fmt.Sprintf("%T", xform)),
 	)
 
 	// ----------------------------------------------------------------------
@@ -136,18 +145,20 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 	// ----------------------------------------------------------------------
 	canon, err := xform.Transform(norm, env)
 	if err != nil {
-		log.Printf(`router_stage="transform_error" event_id="%s" error="%v"`, env.EventID, err)
+		log.Error("router_transform_error",
+			zap.String("event_id", env.EventID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("transformation failed: %w", err)
 	}
 
-	log.Printf(
-		`router_stage="transform" event_id="%s" canonical="%+v"`,
-		env.EventID,
-		canon,
+	log.Debug("router_transform",
+		zap.String("event_id", env.EventID),
+		zap.Any("canonical", canon),
 	)
 
 	// ----------------------------------------------------------------------
-	// 6. DISPATCH (using sanitized payload)
+	// 6. DISPATCH
 	// ----------------------------------------------------------------------
 	if r.dispatcher == nil {
 		return nil, fmt.Errorf("dispatcher not configured")
@@ -155,13 +166,15 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 
 	err = r.dispatcher.Dispatch(canon, env, sanitized)
 	if err != nil {
-		log.Printf(`router_stage="dispatch_error" event_id="%s" error="%v"`, env.EventID, err)
+		log.Error("router_dispatch_error",
+			zap.String("event_id", env.EventID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("dispatch failed: %w", err)
 	}
 
-	log.Printf(
-		`router_stage="dispatch" event_id="%s" status="success"`,
-		env.EventID,
+	log.Debug("router_dispatch_success",
+		zap.String("event_id", env.EventID),
 	)
 
 	return canon, nil

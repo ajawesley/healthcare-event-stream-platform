@@ -1,8 +1,22 @@
 package models
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ajawes/hesp/internal/observability"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+)
+
+func init() {
+	observability.NewLogger("hesp-ecs", "test")
+	observability.InitMetrics("hesp-ecs", "test")
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+}
 
 func TestParseFHIR(t *testing.T) {
+
 	tests := []struct {
 		name      string
 		raw       []byte

@@ -1,12 +1,14 @@
 package normalizer
 
 import (
+	"context"
 	"errors"
-	"log/slog"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type GenericNormalizer struct{}
@@ -16,15 +18,18 @@ func NewGenericNormalizer() *GenericNormalizer {
 }
 
 func (n *GenericNormalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	logger := slog.Default().With(
-		"component", "generic_normalizer",
-		"event_id", env.EventID,
+	ctx := context.Background()
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "generic_normalizer"),
+		zap.String("event_id", env.EventID),
 	)
 
-	logger.Info("starting Generic normalization")
+	log.Info("generic_normalization_start")
 
 	if raw == nil {
-		return nil, errors.New("nil raw payload")
+		err := errors.New("nil raw payload")
+		log.Error("generic_normalization_error", zap.Error(err))
+		return nil, err
 	}
 
 	ne := models.NewNormalizedEvent(config.FormatGeneric, raw)
@@ -32,6 +37,9 @@ func (n *GenericNormalizer) Normalize(raw []byte, env api.Envelope) (*models.Nor
 	// Tests expect raw to be stored as a string
 	ne.Fields["raw"] = string(raw)
 
-	logger.Info("Generic normalization complete")
+	log.Info("generic_normalization_complete",
+		zap.Any("fields", ne.Fields),
+	)
+
 	return ne, nil
 }

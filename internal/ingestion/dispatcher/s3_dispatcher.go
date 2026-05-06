@@ -10,14 +10,16 @@ import (
 	"strconv"
 	"time"
 
-	"log/slog"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 )
 
 type S3Dispatcher struct {
@@ -25,16 +27,14 @@ type S3Dispatcher struct {
 	bucket    string
 	prefix    string
 	kmsKeyARN string
-	logger    *slog.Logger
 }
 
-func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string, logger *slog.Logger) *S3Dispatcher {
+func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dispatcher {
 	return &S3Dispatcher{
 		client:    client,
 		bucket:    bucket,
 		prefix:    prefix,
 		kmsKeyARN: kmsKeyARN,
-		logger:    logger,
 	}
 }
 
@@ -42,7 +42,13 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 	ctx := context.Background()
 	start := time.Now()
 
-	// Build S3 key
+	// Start OTEL span
+	tr := trace.SpanFromContext(ctx).TracerProvider().Tracer("hesp-ecs")
+	ctx, span := tr.Start(ctx, "s3.dispatch")
+	defer span.End()
+
+	log := observability.WithTrace(ctx)
+
 	fullKey := fmt.Sprintf(
 		"%s/%s/%s/%s.json",
 		d.prefix,
@@ -51,16 +57,17 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		event.EventID,
 	)
 
-	// Log the incoming dispatch request
-	d.logger.Info("s3_dispatch_initiated",
-		slog.String("event_id", event.EventID),
-		slog.String("event_type", env.EventType),
-		slog.String("source_system", env.SourceSystem),
-		slog.Any("canonical_event", event),
-		slog.String("raw_bytes", strconv.Quote(string(raw))),
+	// Log dispatch initiation
+	log.Info("s3_dispatch_initiated",
+		zap.String("bucket", d.bucket),
+		zap.String("key", fullKey),
+		zap.String("event_id", event.EventID),
+		zap.String("event_type", env.EventType),
+		zap.String("source_system", env.SourceSystem),
+		zap.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
-	// Build the full S3 object payload
+	// Build S3 object payload
 	obj := map[string]any{
 		"envelope":        env,
 		"canonical_event": event,
@@ -68,34 +75,32 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		"dispatched_at":   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	// Marshal the full object
 	payload, err := json.Marshal(obj)
 	if err != nil {
-		d.logger.Error("json_marshal_failed",
-			slog.String("bucket", d.bucket),
-			slog.String("key", fullKey),
-			slog.String("error", err.Error()),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		observability.Error(ctx, "json_marshal_failed", err, "marshal_error", "failed to marshal S3 payload",
+			zap.String("bucket", d.bucket),
+			zap.String("key", fullKey),
 		)
+		span.RecordError(err)
 		return fmt.Errorf("marshal s3 object: %w", err)
 	}
 
-	// Compute MD5 over EXACT payload bytes
+	// Compute MD5 checksum
 	sum := md5.Sum(payload)
 	md5b64 := base64.StdEncoding.EncodeToString(sum[:])
 
-	d.logger.Info("s3_dispatch_start",
-		slog.String("bucket", d.bucket),
-		slog.String("key", fullKey),
-		slog.String("event_id", event.EventID),
-		slog.String("event_type", env.EventType),
-		slog.String("source_system", env.SourceSystem),
-		slog.String("kms_key_arn", d.kmsKeyARN),
-		slog.String("md5", md5b64),
-		slog.Int("payload_bytes", len(payload)),
+	log.Info("s3_dispatch_start",
+		zap.String("bucket", d.bucket),
+		zap.String("key", fullKey),
+		zap.String("event_id", event.EventID),
+		zap.String("event_type", env.EventType),
+		zap.String("source_system", env.SourceSystem),
+		zap.String("kms_key_arn", d.kmsKeyARN),
+		zap.String("md5", md5b64),
+		zap.Int("payload_bytes", len(payload)),
 	)
 
-	// Write to S3 with SSE-KMS
+	// Write to S3
 	_, err = d.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               aws.String(d.bucket),
 		Key:                  aws.String(fullKey),
@@ -106,21 +111,32 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		ContentType:          aws.String("application/json"),
 	})
 	if err != nil {
-		d.logger.Error("s3_dispatch_failed",
-			slog.String("bucket", d.bucket),
-			slog.String("key", fullKey),
-			slog.String("error", err.Error()),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		observability.Error(ctx, "s3_dispatch_failed", err, "s3_error", "failed to write object to S3",
+			zap.String("bucket", d.bucket),
+			zap.String("key", fullKey),
+			zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 		)
+		span.RecordError(err)
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 
-	d.logger.Info("s3_dispatch_success",
-		slog.String("bucket", d.bucket),
-		slog.String("key", fullKey),
-		slog.String("event_id", event.EventID),
-		slog.String("md5", md5b64),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	// Success log
+	log.Info("s3_dispatch_success",
+		zap.String("bucket", d.bucket),
+		zap.String("key", fullKey),
+		zap.String("event_id", event.EventID),
+		zap.String("md5", md5b64),
+		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
+
+	// Add span attributes
+	span.SetAttributes(
+		attribute.String("s3.bucket", d.bucket),
+		attribute.String("s3.key", fullKey),
+		attribute.String("event.id", event.EventID),
+		attribute.String("event.type", env.EventType),
+		attribute.String("source_system", env.SourceSystem),
+		attribute.Int("payload_bytes", len(payload)),
 	)
 
 	return nil

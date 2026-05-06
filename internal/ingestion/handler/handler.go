@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/router"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type Handler struct {
@@ -41,11 +42,20 @@ func NewHandler(opts ...HandlerOption) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	start := time.Now()
 
-	log.Printf(`ingest_request_received method=%s path=%s remote=%s`, r.Method, r.URL.Path, r.RemoteAddr)
+	log := observability.WithTrace(ctx)
+	log.Info("ingest_request_received",
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+		zap.String("remote_addr", r.RemoteAddr),
+	)
 
 	if r.Method != http.MethodPost {
+		observability.Error(ctx, "method_not_allowed", fmt.Errorf("invalid method"), "invalid_method", "only POST allowed",
+			zap.String("method", r.Method),
+		)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -53,7 +63,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Read raw body ---
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf(`ingest_error stage=read_body error="%v"`, err)
+		observability.Error(ctx, "read_body_failed", err, "read_error", "failed to read request body")
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
@@ -61,15 +71,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// --- Log preview ---
 	bodyPreview := string(rawBody)
-	/*if len(bodyPreview) > 500 {
-		bodyPreview = bodyPreview[:500] + "...(truncated)"
-	}*/
-	log.Printf(`ingest_body_preview raw_body="%s"`, strconv.Quote(bodyPreview))
+	log.Info("ingest_body_preview",
+		zap.String("raw_body", strconv.Quote(bodyPreview)),
+	)
 
 	// --- Decode JSON ---
 	var req api.IngestRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
-		log.Printf(`ingest_error stage=json_decode error="%v"`, err)
+		observability.Error(ctx, "json_decode_failed", err, "json_error", "failed to decode ingest request")
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -77,7 +86,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Decode envelope ---
 	var env api.Envelope
 	if err := json.Unmarshal(req.Envelope, &env); err != nil {
-		log.Printf(`ingest_error stage=envelope_decode error="%v" envelope="%s"`, err, string(req.Envelope))
+		observability.Error(ctx, "envelope_decode_failed", err, "envelope_error", "failed to decode envelope",
+			zap.String("envelope_raw", string(req.Envelope)),
+		)
+
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": "invalid_envelope_structure",
@@ -101,7 +113,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(invalid) > 0 {
-		log.Printf(`ingest_error stage=envelope_validation fields=%v`, invalid)
+		observability.Error(ctx, "envelope_validation_failed", fmt.Errorf("invalid envelope"), "validation_error", "envelope validation failed",
+			zap.Strings("invalid_fields", invalid),
+		)
+
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":  "envelope_validation_failed",
@@ -112,7 +127,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// --- Validate payload ---
 	if len(req.Payload) == 0 {
-		log.Printf(`ingest_error stage=payload_missing`)
+		observability.Error(ctx, "payload_missing", fmt.Errorf("missing payload"), "payload_error", "payload is empty")
 		http.Error(w, "missing payload", http.StatusBadRequest)
 		return
 	}
@@ -120,15 +135,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Route ---
 	canonical, err := h.router.Route(req.Payload, env)
 	if err != nil {
-		errMsg := fmt.Sprintf(`ingest_rejected event_id="%s" event_type="%s" error="%v"`, env.EventID, env.EventType, err)
-		log.Printf(errMsg)
-		http.Error(w, "unsupported or invalid payload: "+errMsg, http.StatusUnprocessableEntity)
+		observability.Error(ctx, "ingest_rejected", err, "routing_error", "router rejected payload",
+			zap.String("event_id", env.EventID),
+			zap.String("event_type", env.EventType),
+		)
+
+		http.Error(w, "unsupported or invalid payload", http.StatusUnprocessableEntity)
 		return
 	}
 
 	// --- Success ---
-	log.Printf(`ingest_accepted event_id="%s" format="%s" duration_ms=%d`,
-		env.EventID, canonical.Format, time.Since(start).Milliseconds())
+	log.Info("ingest_accepted",
+		zap.String("event_id", env.EventID),
+		zap.String("format", string(canonical.Format)),
+		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
 
 	resp := api.IngestResponse{
 		EventID:    env.EventID,

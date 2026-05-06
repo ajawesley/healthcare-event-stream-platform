@@ -1,12 +1,14 @@
 package normalizer
 
 import (
-	"log/slog"
+	"context"
 	"strings"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 type HL7Normalizer struct{}
@@ -16,16 +18,17 @@ func NewHL7Normalizer() *HL7Normalizer {
 }
 
 func (n *HL7Normalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	logger := slog.Default().With(
-		"component", "hl7_normalizer",
-		"event_id", env.EventID,
+	ctx := context.Background()
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "hl7_normalizer"),
+		zap.String("event_id", env.EventID),
 	)
 
-	logger.Info("starting HL7 normalization")
+	log.Info("hl7_normalization_start")
 
 	msg, err := models.ParseHL7(string(raw))
 	if err != nil {
-		logger.Error("HL7 parse failed", "error", err)
+		log.Error("hl7_parse_failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -52,15 +55,15 @@ func (n *HL7Normalizer) Normalize(raw []byte, env api.Envelope) (*models.Normali
 		}
 	}
 
-	// PV1-20: Encounter ID (correct index)
+	// PV1-20: Encounter ID
 	encounterID := safeHL7Field(pv1, 20)
 
-	logger.Info("parsed HL7 fields",
-		"message_type", messageType,
-		"patient_id", patientID,
-		"first_name", firstName,
-		"last_name", lastName,
-		"encounter_id", encounterID,
+	log.Debug("hl7_parsed_fields",
+		zap.String("message_type", messageType),
+		zap.String("patient_id", patientID),
+		zap.String("first_name", firstName),
+		zap.String("last_name", lastName),
+		zap.String("encounter_id", encounterID),
 	)
 
 	ne := models.NewNormalizedEvent(config.FormatHL7, raw)
@@ -76,7 +79,11 @@ func (n *HL7Normalizer) Normalize(raw []byte, env api.Envelope) (*models.Normali
 	ne.Metadata["event_id"] = env.EventID
 	ne.Metadata["source_system"] = env.SourceSystem
 
-	logger.Info("HL7 normalization complete")
+	log.Info("hl7_normalization_complete",
+		zap.Any("fields", ne.Fields),
+		zap.Any("metadata", ne.Metadata),
+	)
+
 	return ne, nil
 }
 

@@ -1,10 +1,13 @@
 package router
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/transformer"
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 // TransformationRouter maps Format → Transformer.
@@ -28,9 +31,25 @@ func NewTransformationRouter() TransformationRouter {
 }
 
 func (r *transformationRouterImpl) TransformerFor(format config.Format) (transformer.Transformer, error) {
+	ctx := context.Background()
+	log := observability.WithTrace(ctx)
+
 	t, ok := r.transformers[format]
 	if !ok {
-		return nil, fmt.Errorf("no transformer registered for format %s", format)
+		err := fmt.Errorf("no transformer registered for format %s", format)
+
+		log.Error("transformer_lookup_error",
+			zap.String("format", string(format)),
+			zap.Error(err),
+		)
+
+		return nil, err
 	}
+
+	log.Debug("transformer_lookup_success",
+		zap.String("format", string(format)),
+		zap.String("transformer", fmt.Sprintf("%T", t)),
+	)
+
 	return t, nil
 }
