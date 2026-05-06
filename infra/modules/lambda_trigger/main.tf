@@ -21,7 +21,7 @@ resource "aws_lambda_function" "this" {
 
   # Custom runtime uses "bootstrap" as the handler
   handler = "bootstrap"
-  runtime = "provided.al2"
+  runtime = "provided.al2023"
 
   architectures    = ["arm64"]  # only support arm64
 
