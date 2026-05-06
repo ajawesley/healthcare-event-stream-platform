@@ -23,6 +23,8 @@ resource "aws_lambda_function" "this" {
   handler = "bootstrap"
   runtime = "provided.al2"
 
+  architectures    = ["arm64"]  # only support arm64
+
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
