@@ -113,14 +113,40 @@ jobs:
       - name: Invoke Lambda (Glue trigger)
         run: |
           LAMBDA_NAME="${{ secrets.AWS_GLUE_TRIGGER_LAMBDA_NAME }}"
-          PAYLOAD='{"test": "smoke"}'
+
+          # Write real S3 event payload to a file
+          cat > real-s3-event.json << 'EOF'
+          {
+            "Records": [
+              {
+                "eventVersion": "2.1",
+                "eventSource": "aws:s3",
+                "awsRegion": "us-east-1",
+                "eventTime": "2026-05-06T00:00:00.000Z",
+                "eventName": "ObjectCreated:Put",
+                "s3": {
+                  "bucket": {
+                    "name": "hesp-dev-raw-events-001"
+                  },
+                  "object": {
+                    "key": "events/hospital-adt/hl7/evt-001.json",
+                    "size": 1234
+                  }
+                }
+             }
+           ]
+          }
+          EOF
+
+          # Invoke Lambda with the real S3 event
           aws lambda invoke \
             --function-name "$LAMBDA_NAME" \
-            --payload "$PAYLOAD" \
+            --payload file://real-s3-event.json \
             --cli-binary-format raw-in-base64-out \
-            /tmp/lambda-response.json
+              /tmp/lambda-response.json
 
           cat /tmp/lambda-response.json
+
 
       - name: Verify Glue job started
         run: |
