@@ -2,16 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func main() {
@@ -24,41 +23,33 @@ func handler(ctx context.Context, s3Event events.S3Event) error {
 		return fmt.Errorf("aws config: %w", err)
 	}
 
-	s3Client := s3.NewFromConfig(awsCfg)
 	glueClient := glue.NewFromConfig(awsCfg)
 
+	// Extract S3 event details
 	record := s3Event.Records[0]
 	bucket := record.S3.Bucket.Name
 	key := record.S3.Object.Key
 
-	log.Printf("Lambda triggered for s3://%s/%s", bucket, key)
+	inputPath := fmt.Sprintf("s3://%s/%s", bucket, key)
+	log.Printf("Lambda triggered for %s", inputPath)
 
-	obj, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return fmt.Errorf("get object: %w", err)
-	}
-	defer obj.Body.Close()
-
-	var event map[string]any
-	if err := json.NewDecoder(obj.Body).Decode(&event); err != nil {
-		return fmt.Errorf("decode json: %w", err)
+	// Glue job name from env var (best practice)
+	jobName := os.Getenv("GLUE_JOB_NAME")
+	if jobName == "" {
+		jobName = "hesp-dev-job"
 	}
 
-	log.Printf("Event read: %v", event)
-
+	// Start Glue job with the EXACT file path
 	_, err = glueClient.StartJobRun(ctx, &glue.StartJobRunInput{
-		JobName: aws.String("hesp-dev-job"),
+		JobName: aws.String(jobName),
 		Arguments: map[string]string{
-			"--input_s3_key": fmt.Sprintf("s3://%s/%s", bucket, key),
+			"--input_path": inputPath,
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("start glue: %w", err)
 	}
 
-	log.Printf("Glue job started for %s", key)
+	log.Printf("Glue job %s started for %s", jobName, key)
 	return nil
 }
