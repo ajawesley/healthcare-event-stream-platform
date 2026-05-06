@@ -148,11 +148,11 @@ resource "aws_iam_role_policy_attachment" "lambda_logging_attach" {
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_s3_read_attach" {
-  role       = var.lambda_role_name
+  role       = var.lambda_role_arn
   policy_arn = aws_iam_policy.lambda_s3_read.arn
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_kms_attach" {
-  role       = var.lambda_role_name
+  role       = var.lambda_role_arn
   policy_arn = aws_iam_policy.lambda_kms.arn
 }
