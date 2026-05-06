@@ -129,7 +129,7 @@ jobs:
                     "name": "hesp-dev-raw-events-001"
                   },
                   "object": {
-                    "key": "events/hospital-adt/hl7/evt-001.json",
+                    "key": "events/fhir-server/fhir/evt-003.json",
                     "size": 1234
                   }
                 }
