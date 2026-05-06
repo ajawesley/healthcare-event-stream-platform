@@ -1,3 +1,43 @@
+package dispatcher
+
+import (
+	"bytes"
+	"context"
+	"crypto/md5"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
+
+	"log/slog"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/ajawes/hesp/internal/ingestion/api"
+	"github.com/ajawes/hesp/internal/ingestion/models"
+)
+
+type S3Dispatcher struct {
+	client    *s3.Client
+	bucket    string
+	prefix    string
+	kmsKeyARN string
+	logger    *slog.Logger
+}
+
+func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string, logger *slog.Logger) *S3Dispatcher {
+	return &S3Dispatcher{
+		client:    client,
+		bucket:    bucket,
+		prefix:    prefix,
+		kmsKeyARN: kmsKeyARN,
+		logger:    logger,
+	}
+}
+
 func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	ctx := context.Background()
 	start := time.Now()
@@ -9,6 +49,15 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		env.SourceSystem,
 		env.EventType,
 		event.EventID,
+	)
+
+	// Log the incoming dispatch request
+	d.logger.Info("s3_dispatch_initiated",
+		slog.String("event_id", event.EventID),
+		slog.String("event_type", env.EventType),
+		slog.String("source_system", env.SourceSystem),
+		slog.Any("canonical_event", event),
+		slog.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
 	// Build the full S3 object payload
@@ -26,6 +75,7 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 			slog.String("bucket", d.bucket),
 			slog.String("key", fullKey),
 			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 		)
 		return fmt.Errorf("marshal s3 object: %w", err)
 	}
