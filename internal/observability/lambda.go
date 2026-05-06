@@ -12,16 +12,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// LambdaHandler wraps AWS Lambda handlers with full observability:
-// - tracing
-// - structured logging
-// - metrics hooks
-// - panic recovery
-// - AWS request ID injection
-func LambdaHandler(handler func(ctx context.Context, event any) (any, error)) func(ctx context.Context, event any) (any, error) {
+// LambdaHandler wraps AWS Lambda handlers with full observability.
+// Generic version: supports strongly typed event + response.
+func LambdaHandler[TIn any, TOut any](
+	handler func(ctx context.Context, event TIn) (TOut, error),
+) func(ctx context.Context, event TIn) (TOut, error) {
+
 	tracer := otel.Tracer("hesp-lambda")
 
-	return func(ctx context.Context, event any) (any, error) {
+	return func(ctx context.Context, event TIn) (TOut, error) {
 		start := time.Now()
 
 		// Extract AWS Lambda context
@@ -37,7 +36,7 @@ func LambdaHandler(handler func(ctx context.Context, event any) (any, error)) fu
 			"lambda.invocation",
 			trace.WithAttributes(
 				attribute.String("aws.request_id", awsReqID),
-				attribute.String("lambda.event_type", getEventType(event)),
+				attribute.String("lambda.event_type", fmt.Sprintf("%T", event)),
 			),
 		)
 		defer span.End()
@@ -45,7 +44,7 @@ func LambdaHandler(handler func(ctx context.Context, event any) (any, error)) fu
 		// Log invocation started
 		Info(ctx, "lambda_invocation_started",
 			zap.String("aws_request_id", awsReqID),
-			zap.String("event_type", getEventType(event)),
+			zap.String("event_type", fmt.Sprintf("%T", event)),
 		)
 
 		// Panic recovery
@@ -65,7 +64,7 @@ func LambdaHandler(handler func(ctx context.Context, event any) (any, error)) fu
 
 		latency := time.Since(start)
 
-		// Emit metrics (hooks only)
+		// Emit metrics
 		RecordLambdaInvocation()
 		RecordLambdaLatency(latency)
 		if err != nil {
@@ -90,12 +89,4 @@ func LambdaHandler(handler func(ctx context.Context, event any) (any, error)) fu
 
 		return resp, err
 	}
-}
-
-// Helper to extract event type for logging
-func getEventType(event any) string {
-	if event == nil {
-		return "nil"
-	}
-	return fmt.Sprintf("%T", event)
 }
