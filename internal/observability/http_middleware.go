@@ -1,94 +1,99 @@
 package observability
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
 type responseRecorder struct {
 	http.ResponseWriter
-	statusCode int
-	bytes      int
+	status int
 }
 
-func newResponseRecorder(w http.ResponseWriter) *responseRecorder {
-	return &responseRecorder{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-	}
+func (r *responseRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
 
-func (r *responseRecorder) WriteHeader(statusCode int) {
-	r.statusCode = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
+// -----------------------------------------------------------------------------
+// ECS Observability Middleware
+// -----------------------------------------------------------------------------
 
-func (r *responseRecorder) Write(b []byte) (int, error) {
-	n, err := r.ResponseWriter.Write(b)
-	r.bytes += n
-	return n, err
-}
-
-// ObservabilityMiddleware wraps all HTTP requests with tracing + structured logging.
 func ObservabilityMiddleware(next http.Handler) http.Handler {
-	tracer := otel.Tracer("hesp-ecs-http")
+	tracer := otel.Tracer("hesp-ecs")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		ctx, span := tracer.Start(r.Context(), "http.request")
+		// Normalize route (prevents cardinality explosion)
+		route := NormalizeRoute(r.URL.Path)
+
+		// Create a new span for the request
+		ctx, span := tracer.Start(
+			r.Context(),
+			"http.request",
+			trace.WithAttributes(
+				attribute.String("http.method", r.Method),
+				attribute.String("http.route", route),
+				attribute.String("http.target", r.URL.String()),
+				attribute.String("http.user_agent", r.UserAgent()),
+			),
+		)
 		defer span.End()
 
-		log := WithTrace(ctx)
+		// Wrap ResponseWriter to capture status code
+		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 
-		rr := newResponseRecorder(w)
-
-		// request_started
-		log.Info("request_started",
-			zap.String("http_method", r.Method),
-			zap.String("http_path", r.URL.Path),
-			zap.String("http_host", r.Host),
-			zap.String("http_user_agent", r.UserAgent()),
+		// Log request started
+		Info(ctx, "request_started",
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.String("route", route),
+			zap.String("remote_addr", r.RemoteAddr),
 		)
 
+		// Panic recovery
 		defer func() {
 			if rec := recover(); rec != nil {
-				err := fmt.Errorf("panic: %v", rec)
-				span.RecordError(err)
-
-				http.Error(rr, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-
-				Error(ctx, "request_panic", err, "panic", "handler panicked",
-					zap.String("http_method", r.Method),
-					zap.String("http_path", r.URL.Path),
+				Error(ctx, "panic_recovered",
+					nil,
+					"panic",
+					"handler panic",
+					zap.Any("panic_value", rec),
 				)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
 			}
 		}()
 
-		next.ServeHTTP(rr, r.WithContext(ctx))
+		// Call next handler
+		next.ServeHTTP(rec, r.WithContext(ctx))
 
-		duration := time.Since(start)
+		// Duration
+		latency := time.Since(start)
 
+		// Emit metrics
+		RecordRequestCount(r.Method, rec.status)
+		RecordRequestLatency(r.Method, rec.status, latency)
+
+		if rec.status >= 500 {
+			RecordHttpError(r.Method, rec.status)
+		}
+
+		// Enrich span
 		span.SetAttributes(
-			attribute.String("http.method", r.Method),
-			attribute.String("http.target", r.URL.Path),
-			attribute.Int("http.status_code", rr.statusCode),
-			attribute.Int("http.response_size", rr.bytes),
-			attribute.Float64("http.server.duration_ms", float64(duration.Milliseconds())),
+			attribute.Int("http.status_code", rec.status),
+			attribute.Float64("http.latency_ms", float64(latency.Milliseconds())),
 		)
 
-		// request_completed
-		log.Info("request_completed",
-			zap.String("http_method", r.Method),
-			zap.String("http_path", r.URL.Path),
-			zap.Int("http_status_code", rr.statusCode),
-			zap.Int("response_bytes", rr.bytes),
-			zap.Int64("duration_ms", duration.Milliseconds()),
+		// Log request completed
+		Info(ctx, "request_completed",
+			zap.Int("status", rec.status),
+			zap.Duration("latency_ms", latency),
 		)
 	})
 }

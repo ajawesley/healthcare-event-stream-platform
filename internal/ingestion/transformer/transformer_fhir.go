@@ -20,7 +20,7 @@ func NewFHIRTransformer() *FHIRTransformer {
 	return &FHIRTransformer{}
 }
 
-func (t *FHIRTransformer) Transform(ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
+func (t *FHIRTransformer) Transform(_ context.Context, ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
 	ctx := context.Background()
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "transformer"),

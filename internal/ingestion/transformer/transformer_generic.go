@@ -20,7 +20,7 @@ func NewGenericTransformer() *GenericTransformer {
 	return &GenericTransformer{}
 }
 
-func (t *GenericTransformer) Transform(ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
+func (t *GenericTransformer) Transform(_ context.Context, ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
 	ctx := context.Background()
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "transformer"),

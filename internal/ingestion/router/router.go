@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
@@ -15,5 +17,5 @@ import (
 //   - dispatch (S3 write)
 //   - returning a canonical event
 type Router interface {
-	Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error)
+	Route(ctx context.Context, raw []byte, env api.Envelope) (*models.CanonicalEvent, error)
 }

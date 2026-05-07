@@ -20,7 +20,7 @@ func NewHL7Transformer() *HL7Transformer {
 	return &HL7Transformer{}
 }
 
-func (t *HL7Transformer) Transform(ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
+func (t *HL7Transformer) Transform(_ context.Context, ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
 	ctx := context.Background()
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "transformer"),

@@ -60,6 +60,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// -------------------------------------------------------------------------
+	// ⭐ NEW: Initialize lineage and mark ingest stage
+	// -------------------------------------------------------------------------
+	var lineage *observability.Lineage
+	lineage, ctx = observability.NewLineage(ctx)
+
+	if lineage != nil {
+		lineage.MarkStage("ingest")
+	}
+	// -------------------------------------------------------------------------
+
 	// --- Read raw body ---
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -133,7 +144,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Route ---
-	canonical, err := h.router.Route(req.Payload, env)
+	canonical, err := h.router.Route(ctx, req.Payload, env)
 	if err != nil {
 		observability.Error(ctx, "ingest_rejected", err, "routing_error", "router rejected payload",
 			zap.String("event_id", env.EventID),
