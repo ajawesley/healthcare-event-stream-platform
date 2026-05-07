@@ -23,7 +23,7 @@ resource "aws_lambda_function" "this" {
   handler = "bootstrap"
   runtime = "provided.al2023"
 
-  architectures    = ["arm64"]  # only support arm64
+  architectures = ["arm64"] # only support arm64
 
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
@@ -134,7 +134,7 @@ resource "aws_iam_policy" "lambda_kms" {
 ############################################
 
 resource "aws_iam_role_policy_attachment" "lambda_glue_attach" {
-  role       = var.lambda_role_name   # FIXED: no brittle ARN splitting
+  role       = var.lambda_role_name # FIXED: no brittle ARN splitting
   policy_arn = aws_iam_policy.lambda_glue_policy.arn
 
   depends_on = [aws_iam_policy.lambda_glue_policy]

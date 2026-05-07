@@ -66,3 +66,38 @@ variable "cost_center" {
 variable "tags" {
   type = map(string)
 }
+
+# --- ADOT / OTEL ---
+
+variable "enable_adot" {
+  type    = bool
+  default = true
+}
+
+variable "adot_image" {
+  type    = string
+  default = "public.ecr.aws/aws-observability/aws-otel-collector:latest"
+}
+
+variable "adot_config_file" {
+  type = string
+}
+
+# --- Observability Vendor Keys ---
+
+variable "dd_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "honeycomb_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "honeycomb_dataset" {
+  type    = string
+  default = ""
+}

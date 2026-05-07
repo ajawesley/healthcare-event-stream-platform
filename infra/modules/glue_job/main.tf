@@ -35,17 +35,17 @@ resource "aws_glue_job" "this" {
     python_version  = "3"
   }
 
- default_arguments = {
-  "--TempDir"                          = var.temp_dir
-  "--enable-continuous-cloudwatch-log" = "true"
-  "--continuous-log-logGroup"          = var.log_group_name
-  "--job-language"                     = "python"
-  "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
+  default_arguments = {
+    "--TempDir"                          = var.temp_dir
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--continuous-log-logGroup"          = var.log_group_name
+    "--job-language"                     = "python"
+    "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
 
-  # STATIC ONLY — Lambda overrides input_path at runtime
-  "--output_base_path" = "s3://${var.golden_bucket}/"
-  "--error_path"       = "s3://${var.golden_bucket}/errors/"
-}
+    # STATIC ONLY — Lambda overrides input_path at runtime
+    "--output_base_path" = "s3://${var.golden_bucket}/"
+    "--error_path"       = "s3://${var.golden_bucket}/errors/"
+  }
 
 
   glue_version      = "4.0"
