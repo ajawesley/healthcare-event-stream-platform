@@ -10,6 +10,7 @@ phases:
   build:
     commands:
       - echo Building ADOT image...
+      - cd infra/adot
       - docker build -t hesp-adot:latest .
       - docker tag hesp-adot:latest $IMAGE_URI
 
