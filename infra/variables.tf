@@ -1,12 +1,12 @@
+variable "aws_region" {
+  type = string
+}
+
 variable "app_name" {
   type = string
 }
 
 variable "environment" {
-  type = string
-}
-
-variable "aws_region" {
   type = string
 }
 
@@ -18,11 +18,11 @@ variable "cost_center" {
   type = string
 }
 
-variable "access_log_bucket_name" {
+variable "bucket_name" {
   type = string
 }
 
-variable "bucket_name" {
+variable "access_log_bucket_name" {
   type = string
 }
 
@@ -49,4 +49,23 @@ variable "glue_temp_dir" {
 variable "tags" {
   type    = map(string)
   default = {}
+}
+
+# --- Observability Vendor Keys ---
+
+variable "dd_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "honeycomb_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "honeycomb_dataset" {
+  type    = string
+  default = ""
 }

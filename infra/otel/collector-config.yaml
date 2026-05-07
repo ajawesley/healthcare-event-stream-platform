@@ -1,0 +1,38 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+  batch:
+
+exporters:
+  awsxray: {}
+
+  # --- Datadog Exporter ---
+  datadog:
+    api:
+      key: "${DD_API_KEY}"
+    site: "datadoghq.com"
+
+  # --- Honeycomb Exporter ---
+  otlp/honeycomb:
+    endpoint: "https://api.honeycomb.io"
+    headers:
+      "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
+      "x-honeycomb-dataset": "${HONEYCOMB_DATASET}"
+
+  logging:
+    loglevel: warn
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [awsxray, datadog, otlp/honeycomb]

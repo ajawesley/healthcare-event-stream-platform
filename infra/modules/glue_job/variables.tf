@@ -42,9 +42,9 @@ variable "log_group_name" {
 }
 
 variable "kms_key_arn" {
-  type      = string
-  default   = null
-  nullable  = true
+  type     = string
+  default  = null
+  nullable = true
 }
 
 # NEW — required for Glue arguments

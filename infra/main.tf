@@ -22,7 +22,7 @@ provider "aws" {
 ############################################
 
 locals {
-  common_tags = {
+  base_tags = {
     App         = var.app_name
     Environment = var.environment
     Owner       = var.owner
@@ -73,24 +73,73 @@ module "github_oidc" {
 }
 
 ############################################
-# VPC Module
+# KMS Key (S3 Encryption)
 ############################################
 
-module "vpc" {
-  source = "./modules/vpc"
+resource "aws_kms_key" "this" {
+  description             = "KMS key for S3 encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+  tags                    = local.base_tags
+}
 
-  name       = "${var.app_name}-${var.environment}"
-  region     = var.aws_region
-  vpc_cidr   = "10.0.0.0/16"
-  primary_az = "us-east-1a"
+############################################
+# Raw Events S3 Bucket (ROOT-LEVEL)
+############################################
 
-  azs = {
-    "us-east-1a" = { index = 0 }
-    "us-east-1b" = { index = 1 }
-    "us-east-1c" = { index = 2 }
+resource "aws_s3_bucket" "this" {
+  bucket = var.bucket_name
+  tags   = local.base_tags
+}
+
+resource "aws_s3_bucket_versioning" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  versioning_configuration {
+    status = "Enabled"
   }
+}
 
-  tags = local.common_tags
+resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.this.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyUnencryptedUploads"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.this.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      }
+    ]
+  })
 }
 
 ############################################
@@ -99,7 +148,7 @@ module "vpc" {
 
 resource "aws_s3_bucket" "access_logs" {
   bucket = var.access_log_bucket_name
-  tags   = local.common_tags
+  tags   = local.base_tags
 }
 
 ############################################
@@ -109,7 +158,7 @@ resource "aws_s3_bucket" "access_logs" {
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/${var.app_name}/${var.environment}/ecs"
   retention_in_days = 30
-  tags              = local.common_tags
+  tags              = local.base_tags
 }
 
 ############################################
@@ -118,7 +167,33 @@ resource "aws_cloudwatch_log_group" "ecs" {
 
 resource "aws_ecs_cluster" "cluster" {
   name = "${var.app_name}-${var.environment}-cluster"
-  tags = local.common_tags
+  tags = local.base_tags
+}
+
+############################################
+# ALB Security Group (CORRECT NAME)
+############################################
+
+resource "aws_security_group" "alb" {
+  name        = "${var.app_name}-${var.environment}-alb-sg"
+  description = "ALB security group"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.base_tags
 }
 
 ############################################
@@ -144,67 +219,28 @@ resource "aws_security_group" "ecs" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = local.common_tags
+  tags = local.base_tags
 }
 
 ############################################
-# S3 Module (Raw Bucket)
+# VPC Module
 ############################################
 
-module "s3" {
-  source = "./modules/s3"
+module "vpc" {
+  source = "./modules/vpc"
 
-  bucket_name = var.bucket_name
-  environment = var.environment
-  owner       = var.owner
-  cost_center = var.cost_center
-  tags        = local.common_tags
-}
+  name       = "${var.app_name}-${var.environment}"
+  region     = var.aws_region
+  vpc_cidr   = "10.0.0.0/16"
+  primary_az = "us-east-1a"
 
-############################################
-# IAM Module
-############################################
-
-module "iam" {
-  source = "./modules/iam"
-
-  environment = var.environment
-  owner       = var.owner
-  cost_center = var.cost_center
-
-  raw_bucket_arn    = module.s3.bucket_arn
-  script_bucket_arn = "arn:aws:s3:::${var.script_bucket}"
-  golden_bucket_arn = "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001"
-
-  kms_key_arn   = module.s3.kms_key_arn
-  log_group_arn = aws_cloudwatch_log_group.ecs.arn
-  tags          = local.common_tags
-}
-
-############################################
-# ALB Security Group
-############################################
-
-resource "aws_security_group" "alb" {
-  name        = "${var.app_name}-${var.environment}-alb-sg-new"
-  description = "ALB security group"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  azs = {
+    "us-east-1a" = { index = 0 }
+    "us-east-1b" = { index = 1 }
+    "us-east-1c" = { index = 2 }
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = local.common_tags
+  tags = local.base_tags
 }
 
 ############################################
@@ -222,11 +258,31 @@ module "alb" {
 
   owner       = var.owner
   cost_center = var.cost_center
-  tags        = local.common_tags
+  tags        = local.base_tags
 }
 
 ############################################
-# ECS Service Module
+# IAM Module
+############################################
+
+module "iam" {
+  source = "./modules/iam"
+
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+
+  raw_bucket_arn    = aws_s3_bucket.this.arn
+  script_bucket_arn = "arn:aws:s3:::${var.script_bucket}"
+  golden_bucket_arn = "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001"
+
+  kms_key_arn   = aws_kms_key.this.arn
+  log_group_arn = aws_cloudwatch_log_group.ecs.arn
+  tags          = local.base_tags
+}
+
+############################################
+# ECS Service Module (ADOT ENABLED)
 ############################################
 
 module "ecs_service" {
@@ -240,15 +296,25 @@ module "ecs_service" {
   task_role_arn           = module.iam.task_role_arn
   subnet_ids              = module.vpc.private_subnets
   security_group_ids      = [aws_security_group.ecs.id]
-  s3_bucket_name          = module.s3.bucket_name
-  kms_key_arn             = module.s3.kms_key_arn
+  s3_bucket_name          = aws_s3_bucket.this.bucket
+  kms_key_arn             = aws_kms_key.this.arn
   s3_prefix               = "events"
   log_group_name          = aws_cloudwatch_log_group.ecs.name
   desired_count           = var.desired_count
   target_group_arn        = module.alb.target_group_arn
   owner                   = var.owner
   cost_center             = var.cost_center
-  tags                    = local.common_tags
+  tags                    = local.base_tags
+
+  # ADOT / OTEL
+  enable_adot      = true
+  adot_image       = "public.ecr.aws/aws-observability/aws-otel-collector:latest"
+  adot_config_file = "${path.module}/otel/collector-config.yaml"
+
+  # Observability Vendor Keys
+  dd_api_key        = var.dd_api_key
+  honeycomb_api_key = var.honeycomb_api_key
+  honeycomb_dataset = var.honeycomb_dataset
 }
 
 ############################################
@@ -269,11 +335,11 @@ module "glue_job" {
   script_s3_path = var.glue_script_s3_path
   temp_dir       = var.glue_temp_dir
 
-  raw_bucket    = module.s3.bucket_name
+  raw_bucket    = aws_s3_bucket.this.bucket
   golden_bucket = "${var.app_name}-${var.environment}-golden-events-001"
 
   log_group_name = "/aws/glue/${var.app_name}-${var.environment}"
-  tags           = local.common_tags
+  tags           = local.base_tags
 }
 
 ############################################
@@ -309,15 +375,15 @@ module "lambda_trigger" {
   glue_job_name = module.glue_job.glue_job_name
   glue_job_arn  = module.glue_job.glue_job_arn
 
-  raw_bucket_name = module.s3.bucket_name
+  raw_bucket_name = aws_s3_bucket.this.bucket
 
   lambda_role_arn  = module.iam.lambda_role_arn
   lambda_role_name = module.iam.lambda_role_name
 
   lambda_zip_path = "${path.root}/../cmd/lambda/lambda.zip"
 
-  kms_key_arn = module.s3.kms_key_arn
-  tags        = local.common_tags
+  kms_key_arn = aws_kms_key.this.arn
+  tags        = local.base_tags
 
   depends_on = [null_resource.build_lambda]
 }
@@ -331,11 +397,11 @@ resource "aws_lambda_permission" "s3_invoke" {
   action        = "lambda:InvokeFunction"
   function_name = module.lambda_trigger.lambda_name
   principal     = "s3.amazonaws.com"
-  source_arn    = module.s3.bucket_arn
+  source_arn    = aws_s3_bucket.this.arn
 }
 
 resource "aws_s3_bucket_notification" "raw_events_trigger" {
-  bucket = module.s3.bucket_name
+  bucket = aws_s3_bucket.this.bucket
 
   lambda_function {
     lambda_function_arn = module.lambda_trigger.lambda_arn
