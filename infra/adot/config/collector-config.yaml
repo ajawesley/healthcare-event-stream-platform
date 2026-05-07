@@ -5,33 +5,20 @@ receivers:
       http:
 
 processors:
-  memory_limiter:
-    check_interval: 1s
-    limit_mib: 400
-    spike_limit_mib: 100
   batch:
 
 exporters:
   awsxray: {}
 
-  # --- Datadog Exporter ---
-  datadog:
-    api:
-      key: "${DD_API_KEY}"
-
-  # --- Honeycomb Exporter ---
   otlphttp/honeycomb:
-    endpoint: "https://api.honeycomb.io:443"
+    endpoint: https://api.honeycomb.io:443
     headers:
-      "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
-      "x-honeycomb-dataset": "${HONEYCOMB_DATASET}"
-
-  debug:
-    verbosity: detailed
+      "x-honeycomb-team": ${HONEYCOMB_API_KEY}
+      "x-honeycomb-dataset": ${HONEYCOMB_DATASET}
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [awsxray, datadog, otlphttp/honeycomb]
+      processors: [batch]
+      exporters: [awsxray, otlphttp/honeycomb]
