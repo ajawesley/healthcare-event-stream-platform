@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/ajawes/hesp/internal/observability"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // ------------------------------------------------------------
@@ -21,10 +22,12 @@ import (
 func init() {
 	observability.NewLogger("hesp-ecs", "test")
 	observability.InitMetrics("hesp-ecs", "test")
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	otel.SetTracerProvider(noop.NewTracerProvider())
 }
 
-// --- Fakes ---
+// ------------------------------------------------------------
+// Fake Detector
+// ------------------------------------------------------------
 
 type fakeDetector struct {
 	format config.Format
@@ -34,12 +37,16 @@ func (f fakeDetector) Detect(_ []byte) config.Format {
 	return f.format
 }
 
+// ------------------------------------------------------------
+// Fake Normalizer (ctx-aware)
+// ------------------------------------------------------------
+
 type fakeNormalizer struct {
 	out *models.NormalizedEvent
 	err error
 }
 
-func (f fakeNormalizer) Normalize(_ []byte, _ api.Envelope) (*models.NormalizedEvent, error) {
+func (f fakeNormalizer) Normalize(_ context.Context, _ []byte, _ api.Envelope) (*models.NormalizedEvent, error) {
 	return f.out, f.err
 }
 
@@ -55,12 +62,16 @@ func (r fakeNormalizationRouter) NormalizerFor(_ config.Format) (normalizer.Norm
 	return r.norm, nil
 }
 
+// ------------------------------------------------------------
+// Fake Transformer (ctx-aware)
+// ------------------------------------------------------------
+
 type fakeTransformer struct {
 	out *models.CanonicalEvent
 	err error
 }
 
-func (f fakeTransformer) Transform(_ *models.NormalizedEvent, _ api.Envelope) (*models.CanonicalEvent, error) {
+func (f fakeTransformer) Transform(_ context.Context, _ *models.NormalizedEvent, _ api.Envelope) (*models.CanonicalEvent, error) {
 	return f.out, f.err
 }
 
@@ -76,17 +87,23 @@ func (r fakeTransformationRouter) TransformerFor(_ config.Format) (transformer.T
 	return r.xfm, nil
 }
 
+// ------------------------------------------------------------
+// Fake Dispatcher (ctx-aware)
+// ------------------------------------------------------------
+
 type fakeDispatcher struct {
 	called bool
 	err    error
 }
 
-func (d *fakeDispatcher) Dispatch(_ *models.CanonicalEvent, _ api.Envelope, _ []byte) error {
+func (d *fakeDispatcher) Dispatch(_ context.Context, _ *models.CanonicalEvent, _ api.Envelope, _ []byte) error {
 	d.called = true
 	return d.err
 }
 
-// --- Tests ---
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
 
 func TestFormatRouter(t *testing.T) {
 	tests := []struct {
@@ -150,7 +167,8 @@ func TestFormatRouter(t *testing.T) {
 				SourceSystem: "unit",
 			}
 
-			_, err := r.Route([]byte("raw"), env)
+			// ⭐ Updated: Route now requires ctx
+			_, err := r.Route(context.Background(), []byte("raw"), env)
 
 			if tt.expectErr && err == nil {
 				t.Fatalf("expected error, got nil")

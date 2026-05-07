@@ -1,6 +1,8 @@
 package dispatcher
 
 import (
+	"context"
+
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 )
@@ -11,5 +13,5 @@ type Dispatcher interface {
 	//   - the canonical event (normalized + transformed)
 	//   - the original envelope (event_id, event_type, produced_at, source_system)
 	//   - the raw payload (for lineage/debugging)
-	Dispatch(event *models.CanonicalEvent, env api.Envelope, raw []byte) error
+	Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error
 }

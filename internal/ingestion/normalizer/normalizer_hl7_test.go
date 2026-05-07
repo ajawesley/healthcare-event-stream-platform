@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
@@ -8,7 +9,7 @@ import (
 	"github.com/ajawes/hesp/internal/observability"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // ------------------------------------------------------------
@@ -17,7 +18,7 @@ import (
 func init() {
 	observability.NewLogger("hesp-ecs", "test")
 	observability.InitMetrics("hesp-ecs", "test")
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	otel.SetTracerProvider(noop.NewTracerProvider())
 }
 
 func TestHL7Normalizer(t *testing.T) {
@@ -51,21 +52,9 @@ PV1|1|I|WARD^101|||||||||||||||||ENC456`),
 				}
 			},
 		},
-		{
-			name:    "missing MSH",
-			raw:     []byte("PID|1||PAT123\nPV1|1|I"),
-			wantErr: models.ErrHL7MissingMSH,
-		},
-		{
-			name:    "missing PID",
-			raw:     []byte("MSH|a|b\nPV1|1|I"),
-			wantErr: models.ErrHL7MissingPID,
-		},
-		{
-			name:    "missing PV1",
-			raw:     []byte("MSH|a|b\nPID|1||PAT123"),
-			wantErr: models.ErrHL7MissingPV1,
-		},
+		{"missing MSH", []byte("PID|1||PAT123\nPV1|1|I"), models.ErrHL7MissingMSH, nil},
+		{"missing PID", []byte("MSH|a|b\nPV1|1|I"), models.ErrHL7MissingPID, nil},
+		{"missing PV1", []byte("MSH|a|b\nPID|1||PAT123"), models.ErrHL7MissingPV1, nil},
 	}
 
 	n := NewHL7Normalizer()
@@ -73,7 +62,9 @@ PV1|1|I|WARD^101|||||||||||||||||ENC456`),
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ce, err := n.Normalize(tt.raw, env)
+
+			// ⭐ UPDATED: Normalize now requires ctx
+			ce, err := n.Normalize(context.Background(), tt.raw, env)
 
 			if tt.wantErr != nil {
 				if err == nil {

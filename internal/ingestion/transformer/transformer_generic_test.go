@@ -1,6 +1,7 @@
 package transformer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
@@ -63,7 +64,9 @@ func TestGenericTransformer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ce, err := xfm.Transform(tt.ne, tt.env)
+
+			// ⭐ UPDATED: Transform now requires ctx
+			ce, err := xfm.Transform(context.Background(), tt.ne, tt.env)
 
 			if tt.expectErr {
 				if err == nil {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,11 +13,15 @@ import (
 	"github.com/ajawes/hesp/internal/config"
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
-
 	"github.com/ajawes/hesp/internal/observability"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// -----------------------------------------------------------------------------
+// Test Init
+// -----------------------------------------------------------------------------
 
 func init() {
 	observability.NewLogger("hesp-ecs", "test")
@@ -25,7 +30,7 @@ func init() {
 }
 
 // -----------------------------------------------------------------------------
-// Shared Test Helpers
+// Fake Router (updated for ctx-aware interface)
 // -----------------------------------------------------------------------------
 
 type FakeRouter struct {
@@ -33,13 +38,19 @@ type FakeRouter struct {
 	err           error
 	calledPayload []byte
 	calledEnv     api.Envelope
+	calledCtx     context.Context
 }
 
-func (f *FakeRouter) Route(payload []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+func (f *FakeRouter) Route(ctx context.Context, payload []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	f.calledCtx = ctx
 	f.calledPayload = payload
 	f.calledEnv = env
 	return f.resp, f.err
 }
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
 
 func mustJSONMarshal(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
@@ -135,6 +146,9 @@ func TestHandler(t *testing.T) {
 				if fake.calledEnv.EventID != "evt-1" {
 					t.Fatalf("expected envelope event_id evt-1, got %s", fake.calledEnv.EventID)
 				}
+				if fake.calledCtx == nil {
+					t.Fatalf("expected ctx to be passed into router")
+				}
 			},
 		},
 		{
@@ -160,6 +174,9 @@ func TestHandler(t *testing.T) {
 				}
 				if fake.calledEnv.EventID != "evt-2" {
 					t.Fatalf("expected envelope event_id evt-2, got %s", fake.calledEnv.EventID)
+				}
+				if fake.calledCtx == nil {
+					t.Fatalf("expected ctx to be passed into router")
 				}
 			},
 		},
@@ -192,6 +209,9 @@ func TestHandler(t *testing.T) {
 				}
 				if resp.Format != "generic" {
 					t.Fatalf("expected Format generic, got %s", resp.Format)
+				}
+				if fake.calledCtx == nil {
+					t.Fatalf("expected ctx to be passed into router")
 				}
 			},
 		},
