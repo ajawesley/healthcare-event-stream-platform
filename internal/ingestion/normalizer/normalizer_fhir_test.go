@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
@@ -8,7 +9,7 @@ import (
 	"github.com/ajawes/hesp/internal/observability"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // ------------------------------------------------------------
@@ -17,7 +18,7 @@ import (
 func init() {
 	observability.NewLogger("hesp-ecs", "test")
 	observability.InitMetrics("hesp-ecs", "test")
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	otel.SetTracerProvider(noop.NewTracerProvider())
 }
 
 func TestFHIRNormalizer(t *testing.T) {
@@ -96,7 +97,9 @@ func TestFHIRNormalizer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ne, err := n.Normalize([]byte(tt.raw), api.Envelope{})
+
+			// ⭐ UPDATED: Normalize now requires ctx
+			ne, err := n.Normalize(context.Background(), []byte(tt.raw), api.Envelope{})
 
 			if tt.expectErr {
 				if err == nil {

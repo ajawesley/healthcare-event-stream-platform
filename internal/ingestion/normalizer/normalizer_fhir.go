@@ -18,7 +18,7 @@ func NewFHIRNormalizer() *FHIRNormalizer {
 	return &FHIRNormalizer{}
 }
 
-func (n *FHIRNormalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
+func (n *FHIRNormalizer) Normalize(_ context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
 	ctx := context.Background()
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "fhir_normalizer"),

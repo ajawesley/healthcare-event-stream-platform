@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/detector"
@@ -52,15 +53,12 @@ func (r *FormatRouter) SetDispatcher(d dispatcher.Dispatcher) {
 }
 
 // -----------------------------------------------------------------------------
-// ⭐ Correct signature: Route(raw, env)
+// Route(ctx, raw, env)
 // -----------------------------------------------------------------------------
-func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
-	ctx := context.Background()
+func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
 	log := observability.WithTrace(ctx)
 
-	// ----------------------------------------------------------------------
-	// 0. PRE-SANITIZE FIRST
-	// ----------------------------------------------------------------------
+	// 0. PRE-SANITIZE
 	sanitized := pipeline.PreSanitize(raw)
 
 	rawQuoted := strconv.Quote(string(raw))
@@ -79,9 +77,7 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		zap.String("sanitized", sanitizedQuoted),
 	)
 
-	// ----------------------------------------------------------------------
 	// 1. DETECT FORMAT
-	// ----------------------------------------------------------------------
 	format := r.detector.Detect(sanitized)
 
 	log.Debug("router_detect",
@@ -89,9 +85,7 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		zap.String("format", string(format)),
 	)
 
-	// ----------------------------------------------------------------------
 	// 2. LOOKUP NORMALIZER
-	// ----------------------------------------------------------------------
 	normer, err := r.normalizer.NormalizerFor(format)
 	if err != nil {
 		log.Error("router_normalizer_lookup_error",
@@ -101,15 +95,13 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		return nil, fmt.Errorf("normalizer lookup failed: %w", err)
 	}
 
-	log.Debug("router_normalizer_lookup",
-		zap.String("event_id", env.EventID),
-		zap.String("normalizer", fmt.Sprintf("%T", normer)),
-	)
+	// 3. NORMALIZE (with metrics)
+	normStart := time.Now()
+	norm, err := normer.Normalize(ctx, sanitized, env)
+	normDuration := time.Since(normStart)
 
-	// ----------------------------------------------------------------------
-	// 3. NORMALIZE
-	// ----------------------------------------------------------------------
-	norm, err := normer.Normalize(sanitized, env)
+	observability.ObserveStageLatency(ctx, "normalize", env.EventType, env.SourceSystem, normDuration)
+
 	if err != nil {
 		log.Error("router_normalize_error",
 			zap.String("event_id", env.EventID),
@@ -123,9 +115,7 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		zap.Any("normalized", norm),
 	)
 
-	// ----------------------------------------------------------------------
 	// 4. LOOKUP TRANSFORMER
-	// ----------------------------------------------------------------------
 	xform, err := r.transformer.TransformerFor(format)
 	if err != nil {
 		log.Error("router_transformer_lookup_error",
@@ -135,15 +125,13 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		return nil, fmt.Errorf("transformer lookup failed: %w", err)
 	}
 
-	log.Debug("router_transformer_lookup",
-		zap.String("event_id", env.EventID),
-		zap.String("transformer", fmt.Sprintf("%T", xform)),
-	)
+	// 5. TRANSFORM (with metrics)
+	xformStart := time.Now()
+	canon, err := xform.Transform(ctx, norm, env)
+	xformDuration := time.Since(xformStart)
 
-	// ----------------------------------------------------------------------
-	// 5. TRANSFORM
-	// ----------------------------------------------------------------------
-	canon, err := xform.Transform(norm, env)
+	observability.ObserveStageLatency(ctx, "transform", env.EventType, env.SourceSystem, xformDuration)
+
 	if err != nil {
 		log.Error("router_transform_error",
 			zap.String("event_id", env.EventID),
@@ -157,14 +145,17 @@ func (r *FormatRouter) Route(raw []byte, env api.Envelope) (*models.CanonicalEve
 		zap.Any("canonical", canon),
 	)
 
-	// ----------------------------------------------------------------------
-	// 6. DISPATCH
-	// ----------------------------------------------------------------------
+	// 6. DISPATCH (with metrics)
 	if r.dispatcher == nil {
 		return nil, fmt.Errorf("dispatcher not configured")
 	}
 
-	err = r.dispatcher.Dispatch(canon, env, sanitized)
+	dispatchStart := time.Now()
+	err = r.dispatcher.Dispatch(ctx, canon, env, sanitized)
+	dispatchDuration := time.Since(dispatchStart)
+
+	observability.ObserveStageLatency(ctx, "dispatch", env.EventType, env.SourceSystem, dispatchDuration)
+
 	if err != nil {
 		log.Error("router_dispatch_error",
 			zap.String("event_id", env.EventID),

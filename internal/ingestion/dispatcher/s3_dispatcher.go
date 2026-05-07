@@ -17,6 +17,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 	"github.com/ajawes/hesp/internal/observability"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -38,11 +39,13 @@ func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dis
 	}
 }
 
-func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
-	ctx := context.Background()
+// -----------------------------------------------------------------------------
+// ⭐ Dispatch now receives ctx from router (no context.Background())
+// -----------------------------------------------------------------------------
+func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	start := time.Now()
 
-	// Start OTEL span
+	// Use existing span if present
 	tr := trace.SpanFromContext(ctx).TracerProvider().Tracer("hesp-ecs")
 	ctx, span := tr.Start(ctx, "s3.dispatch")
 	defer span.End()
@@ -57,7 +60,6 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		event.EventID,
 	)
 
-	// Log dispatch initiation
 	log.Info("s3_dispatch_initiated",
 		zap.String("bucket", d.bucket),
 		zap.String("key", fullKey),
@@ -67,11 +69,20 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		zap.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
+	// -------------------------------------------------------------------------
+	// ⭐ Include lineage stages in payload
+	// -------------------------------------------------------------------------
+	var lineageStages []observability.LineageStage
+	if lineage := observability.GetLineage(ctx); lineage != nil {
+		lineageStages = lineage.Stages()
+	}
+
 	// Build S3 object payload
 	obj := map[string]any{
 		"envelope":        env,
 		"canonical_event": event,
 		"raw":             string(raw),
+		"lineage":         lineageStages,
 		"dispatched_at":   time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -100,7 +111,11 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		zap.Int("payload_bytes", len(payload)),
 	)
 
-	// Write to S3
+	// -------------------------------------------------------------------------
+	// ⭐ Write to S3 (with latency metrics)
+	// -------------------------------------------------------------------------
+	s3Start := time.Now()
+
 	_, err = d.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               aws.String(d.bucket),
 		Key:                  aws.String(fullKey),
@@ -110,6 +125,12 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		SSEKMSKeyId:          aws.String(d.kmsKeyARN),
 		ContentType:          aws.String("application/json"),
 	})
+
+	s3Duration := time.Since(s3Start)
+
+	// ⭐ Record S3 latency metric
+	observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, err == nil)
+
 	if err != nil {
 		observability.Error(ctx, "s3_dispatch_failed", err, "s3_error", "failed to write object to S3",
 			zap.String("bucket", d.bucket),
@@ -120,7 +141,13 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 
-	// Success log
+	// -------------------------------------------------------------------------
+	// ⭐ Mark lineage stage: written
+	// -------------------------------------------------------------------------
+	if lineage := observability.GetLineage(ctx); lineage != nil {
+		lineage.MarkStage("written")
+	}
+
 	log.Info("s3_dispatch_success",
 		zap.String("bucket", d.bucket),
 		zap.String("key", fullKey),
@@ -129,7 +156,6 @@ func (d *S3Dispatcher) Dispatch(event *models.CanonicalEvent, env api.Envelope, 
 		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 
-	// Add span attributes
 	span.SetAttributes(
 		attribute.String("s3.bucket", d.bucket),
 		attribute.String("s3.key", fullKey),

@@ -1,6 +1,7 @@
 package transformer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
@@ -9,7 +10,7 @@ import (
 	"github.com/ajawes/hesp/internal/observability"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // ------------------------------------------------------------
@@ -18,7 +19,7 @@ import (
 func init() {
 	observability.NewLogger("hesp-ecs", "test")
 	observability.InitMetrics("hesp-ecs", "test")
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	otel.SetTracerProvider(noop.NewTracerProvider())
 }
 
 func TestFHIRTransformer(t *testing.T) {
@@ -99,7 +100,9 @@ func TestFHIRTransformer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ce, err := xfm.Transform(tt.ne, tt.env)
+
+			// ⭐ UPDATED: Transform now requires ctx
+			ce, err := xfm.Transform(context.Background(), tt.ne, tt.env)
 
 			if tt.expectErr {
 				if err == nil {

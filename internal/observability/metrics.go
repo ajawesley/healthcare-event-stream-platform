@@ -15,6 +15,13 @@ var (
 	// ECS HTTP metrics
 	httpRequestCount   metric.Int64Counter
 	httpRequestLatency metric.Float64Histogram
+	httpErrorCount     metric.Int64Counter
+
+	// External dependency metrics
+	dbQueryLatency    metric.Float64Histogram
+	redisLatency      metric.Float64Histogram
+	s3Latency         metric.Float64Histogram
+	httpClientLatency metric.Float64Histogram
 
 	// Lambda metrics
 	lambdaInvocationCount metric.Int64Counter
@@ -44,6 +51,34 @@ func InitMetrics(serviceName, environment string) {
 	httpRequestLatency, _ = meter.Float64Histogram(
 		"hesp_http_request_latency_ms",
 		metric.WithDescription("HTTP request latency in milliseconds"),
+	)
+
+	httpErrorCount, _ = meter.Int64Counter(
+		"hesp_http_errors_total",
+		metric.WithDescription("Total number of HTTP 5xx errors"),
+	)
+
+	// -------------------------------
+	// External dependency metrics
+	// -------------------------------
+	dbQueryLatency, _ = meter.Float64Histogram(
+		"db_query_latency_ms",
+		metric.WithDescription("Latency of database queries in milliseconds"),
+	)
+
+	redisLatency, _ = meter.Float64Histogram(
+		"redis_latency_ms",
+		metric.WithDescription("Latency of Redis operations in milliseconds"),
+	)
+
+	s3Latency, _ = meter.Float64Histogram(
+		"s3_operation_latency_ms",
+		metric.WithDescription("Latency of S3 operations in milliseconds"),
+	)
+
+	httpClientLatency, _ = meter.Float64Histogram(
+		"http_client_latency_ms",
+		metric.WithDescription("Latency of outbound HTTP calls in milliseconds"),
 	)
 
 	// -------------------------------
@@ -107,13 +142,104 @@ func RecordRequestLatency(method string, status int, d time.Duration) {
 	)
 }
 
+// RecordHttpError increments the HTTP error counter.
+func RecordHttpError(method string, status int) {
+	if httpErrorCount == nil {
+		return
+	}
+
+	httpErrorCount.Add(
+		context.Background(),
+		1,
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("http.method", method),
+			attribute.Int("http.status_code", status),
+		),
+	)
+}
+
+//
+// ────────────────────────────────────────────────────────────────────────────────
+//   EXTERNAL DEPENDENCY HELPERS
+// ────────────────────────────────────────────────────────────────────────────────
+//
+
+func RecordDBLatency(op, table string, d time.Duration) {
+	if dbQueryLatency == nil {
+		return
+	}
+
+	dbQueryLatency.Record(
+		context.Background(),
+		float64(d.Milliseconds()),
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("db.operation", op),
+			attribute.String("db.table", table),
+		),
+	)
+}
+
+func RecordRedisLatency(cmd string, d time.Duration) {
+	if redisLatency == nil {
+		return
+	}
+
+	redisLatency.Record(
+		context.Background(),
+		float64(d.Milliseconds()),
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("redis.command", cmd),
+		),
+	)
+}
+
+func RecordS3Latency(op, bucket string, d time.Duration) {
+	if s3Latency == nil {
+		return
+	}
+
+	s3Latency.Record(
+		context.Background(),
+		float64(d.Milliseconds()),
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("s3.operation", op),
+			attribute.String("s3.bucket", bucket),
+		),
+	)
+}
+
+func RecordHttpClientLatency(method, host string, status int, d time.Duration) {
+	if httpClientLatency == nil {
+		return
+	}
+
+	httpClientLatency.Record(
+		context.Background(),
+		float64(d.Milliseconds()),
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("http.method", method),
+			attribute.String("http.host", host),
+			attribute.Int("http.status_code", status),
+		),
+	)
+}
+
 //
 // ────────────────────────────────────────────────────────────────────────────────
 //   LAMBDA METRIC HELPERS
 // ────────────────────────────────────────────────────────────────────────────────
 //
 
-// RecordLambdaInvocation increments the invocation counter.
 func RecordLambdaInvocation() {
 	if lambdaInvocationCount == nil {
 		return
@@ -122,14 +248,10 @@ func RecordLambdaInvocation() {
 	lambdaInvocationCount.Add(
 		context.Background(),
 		1,
-		metric.WithAttributes(
-			attrService,
-			attrEnvironment,
-		),
+		metric.WithAttributes(attrService, attrEnvironment),
 	)
 }
 
-// RecordLambdaError increments the error counter.
 func RecordLambdaError() {
 	if lambdaErrorCount == nil {
 		return
@@ -138,14 +260,10 @@ func RecordLambdaError() {
 	lambdaErrorCount.Add(
 		context.Background(),
 		1,
-		metric.WithAttributes(
-			attrService,
-			attrEnvironment,
-		),
+		metric.WithAttributes(attrService, attrEnvironment),
 	)
 }
 
-// RecordLambdaLatency records Lambda invocation latency.
 func RecordLambdaLatency(d time.Duration) {
 	if lambdaLatency == nil {
 		return
@@ -154,9 +272,6 @@ func RecordLambdaLatency(d time.Duration) {
 	lambdaLatency.Record(
 		context.Background(),
 		float64(d.Milliseconds()),
-		metric.WithAttributes(
-			attrService,
-			attrEnvironment,
-		),
+		metric.WithAttributes(attrService, attrEnvironment),
 	)
 }

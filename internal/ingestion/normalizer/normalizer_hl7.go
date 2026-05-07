@@ -17,7 +17,7 @@ func NewHL7Normalizer() *HL7Normalizer {
 	return &HL7Normalizer{}
 }
 
-func (n *HL7Normalizer) Normalize(raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
+func (n *HL7Normalizer) Normalize(_ context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
 	ctx := context.Background()
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "hl7_normalizer"),
