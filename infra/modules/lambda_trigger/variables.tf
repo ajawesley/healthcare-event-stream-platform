@@ -43,5 +43,5 @@ variable "lambda_zip_path" {
 }
 
 variable "kms_key_arn" {
-  type      = string
+  type = string
 }

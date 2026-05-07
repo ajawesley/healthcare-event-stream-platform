@@ -1,0 +1,21 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging into Amazon ECR...
+      - aws ecr get-login-password --region $AWS_REGION \
+        | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - IMAGE_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/hesp-adot:latest
+
+  build:
+    commands:
+      - echo Building ADOT image...
+      - docker build -t hesp-adot:latest .
+      - docker tag hesp-adot:latest $IMAGE_URI
+
+  post_build:
+    commands:
+      - echo Pushing image to ECR...
+      - docker push $IMAGE_URI
+      - echo Build completed successfully.

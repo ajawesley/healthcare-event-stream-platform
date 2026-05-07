@@ -19,7 +19,7 @@ locals {
 resource "aws_lb" "this" {
   name               = "${var.app_name}-${var.environment}-alb"
   load_balancer_type = "application"
-  security_groups = [var.alb_security_group_id]
+  security_groups    = [var.alb_security_group_id]
   subnets            = var.subnet_ids
 
   tags = local.base_tags
@@ -30,7 +30,7 @@ resource "aws_lb" "this" {
 ############################################
 
 resource "aws_lb_target_group" "this" {
-  name_prefix        = "hesp-"
+  name_prefix = "hesp-"
   port        = 8080
   protocol    = "HTTP"
   target_type = "ip"
