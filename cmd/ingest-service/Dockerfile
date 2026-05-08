@@ -1,29 +1,21 @@
-# ---------- Build Stage ----------
+# Build stage
 FROM golang:1.25 AS builder
 
 WORKDIR /app
 
-# Cache modules first
-COPY ../../go.mod ../../go.sum ./
+# Copy module files from repo root
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the entire repo
-COPY . .
+# Copy service source
+COPY cmd/ingest-service/ .
 
-# Build static binary for Linux (required for ECS Fargate)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o ingest-service ./cmd/ingest-service
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ingest-service
 
-# ---------- Runtime Stage ----------
+# Runtime stage
 FROM alpine:3.19
 
 WORKDIR /app
-
-# Copy binary from builder
 COPY --from=builder /app/ingest-service .
 
-# Expose the port your service listens on
-EXPOSE 8080
-
-# Run the service
 CMD ["./ingest-service"]
