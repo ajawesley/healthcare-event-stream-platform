@@ -40,7 +40,8 @@ func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dis
 }
 
 // -----------------------------------------------------------------------------
-// ⭐ Dispatch now receives ctx from router (no context.Background())
+// Dispatch writes the canonical event + envelope + raw payload to S3.
+// Now includes trace_id + span_id in the S3 object payload.
 // -----------------------------------------------------------------------------
 func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	start := time.Now()
@@ -51,6 +52,11 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	defer span.End()
 
 	log := observability.WithTrace(ctx)
+
+	// Extract trace + span IDs for payload
+	sc := span.SpanContext()
+	traceID := sc.TraceID().String()
+	spanID := sc.SpanID().String()
 
 	fullKey := fmt.Sprintf(
 		"%s/%s/%s/%s.json",
@@ -66,24 +72,30 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.String("event_id", event.EventID),
 		zap.String("event_type", env.EventType),
 		zap.String("source_system", env.SourceSystem),
+		zap.String("trace_id", traceID),
+		zap.String("span_id", spanID),
 		zap.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
 	// -------------------------------------------------------------------------
-	// ⭐ Include lineage stages in payload
+	// Include lineage stages in payload
 	// -------------------------------------------------------------------------
 	var lineageStages []observability.LineageStage
 	if lineage := observability.GetLineage(ctx); lineage != nil {
 		lineageStages = lineage.Stages()
 	}
 
-	// Build S3 object payload
+	// -------------------------------------------------------------------------
+	// Build S3 object payload (now includes trace_id + span_id)
+	// -------------------------------------------------------------------------
 	obj := map[string]any{
 		"envelope":        env,
 		"canonical_event": event,
 		"raw":             string(raw),
 		"lineage":         lineageStages,
-		"dispatched_at":   time.Now().UTC().Format(time.RFC3339),
+		"trace_id":        traceID,
+		"span_id":         spanID,
+		"dispatched_at":   time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	payload, err := json.Marshal(obj)
@@ -104,15 +116,14 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.String("bucket", d.bucket),
 		zap.String("key", fullKey),
 		zap.String("event_id", event.EventID),
-		zap.String("event_type", env.EventType),
-		zap.String("source_system", env.SourceSystem),
-		zap.String("kms_key_arn", d.kmsKeyARN),
+		zap.String("trace_id", traceID),
+		zap.String("span_id", spanID),
 		zap.String("md5", md5b64),
 		zap.Int("payload_bytes", len(payload)),
 	)
 
 	// -------------------------------------------------------------------------
-	// ⭐ Write to S3 (with latency metrics)
+	// Write to S3 (with latency metrics)
 	// -------------------------------------------------------------------------
 	s3Start := time.Now()
 
@@ -128,22 +139,22 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 
 	s3Duration := time.Since(s3Start)
 
-	// ⭐ Record S3 latency metric
+	// Record S3 latency metric
 	observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, err == nil)
 
 	if err != nil {
 		observability.Error(ctx, "s3_dispatch_failed", err, "s3_error", "failed to write object to S3",
 			zap.String("bucket", d.bucket),
 			zap.String("key", fullKey),
+			zap.String("trace_id", traceID),
+			zap.String("span_id", spanID),
 			zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 		)
 		span.RecordError(err)
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 
-	// -------------------------------------------------------------------------
-	// ⭐ Mark lineage stage: written
-	// -------------------------------------------------------------------------
+	// Mark lineage stage: written
 	if lineage := observability.GetLineage(ctx); lineage != nil {
 		lineage.MarkStage("written")
 	}
@@ -152,6 +163,8 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.String("bucket", d.bucket),
 		zap.String("key", fullKey),
 		zap.String("event_id", event.EventID),
+		zap.String("trace_id", traceID),
+		zap.String("span_id", spanID),
 		zap.String("md5", md5b64),
 		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
@@ -162,6 +175,8 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		attribute.String("event.id", event.EventID),
 		attribute.String("event.type", env.EventType),
 		attribute.String("source_system", env.SourceSystem),
+		attribute.String("trace_id", traceID),
+		attribute.String("span_id", spanID),
 		attribute.Int("payload_bytes", len(payload)),
 	)
 

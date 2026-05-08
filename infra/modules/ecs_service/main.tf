@@ -31,7 +31,7 @@ resource "aws_ecs_task_definition" "this" {
     # ---------------------------------------------------------
     {
       name      = var.app_name
-      image     = var.container_image
+      image     = var.container_image   # <── THIS IS NOW EXPLICIT
       essential = true
 
       portMappings = [
@@ -49,19 +49,15 @@ resource "aws_ecs_task_definition" "this" {
           { name = "S3_PREFIX", value = var.s3_prefix }
         ],
         var.enable_adot ? [
-          # OTEL endpoint must point to ADOT sidecar, NOT localhost
           { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://adot:4317" },
-
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
           { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
           { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
           { name = "OTEL_TRACES_SAMPLER_ARG", value = "1.0" },
-
           {
             name  = "OTEL_RESOURCE_ATTRIBUTES",
             value = "service.name=${var.app_name},environment=${var.environment},deployment.environment=${var.environment},source_system=hesp-ecs"
           },
-
           { name = "DD_API_KEY", value = var.dd_api_key },
           { name = "HONEYCOMB_API_KEY", value = var.honeycomb_api_key },
           { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
