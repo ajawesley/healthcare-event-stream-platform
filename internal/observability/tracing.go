@@ -25,7 +25,7 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		// Local default — ECS/Lambda MUST override this
-		endpoint = "localhost:4317"
+		endpoint = "adot:4317"
 	}
 
 	// -----------------------------------------

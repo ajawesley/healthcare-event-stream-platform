@@ -11,7 +11,7 @@ locals {
 }
 
 ############################################
-# ECS Task Execution Role
+# ECS Task Execution Role (pulls from ECR)
 ############################################
 
 resource "aws_iam_role" "ecs_execution" {
@@ -34,8 +34,27 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Add ECR pull permissions
+resource "aws_iam_role_policy" "ecs_execution_ecr" {
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 ############################################
-# ECS Task Role
+# ECS Task Role (app permissions)
 ############################################
 
 resource "aws_iam_role" "ecs_task" {
@@ -115,64 +134,39 @@ resource "aws_iam_policy" "glue_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-
-      # 1. RAW EVENTS BUCKET (READ)
       {
         Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
+        Action = ["s3:GetObject", "s3:ListBucket"]
         Resource = [
           var.raw_bucket_arn,
           "${var.raw_bucket_arn}/*"
         ]
       },
-
-      # 2. GLUE SCRIPTS BUCKET (READ)
       {
         Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
+        Action = ["s3:GetObject", "s3:ListBucket"]
         Resource = [
           var.script_bucket_arn,
           "${var.script_bucket_arn}/*"
         ]
       },
-
-      # 3. GLUE TEMP DIR + SPARK LOGS (WRITE)
       {
         Effect = "Allow"
-        Action = [
-          "s3:PutObject",
-          "s3:GetObject",
-          "s3:DeleteObject",
-          "s3:ListBucket"
-        ]
+        Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"]
         Resource = [
           var.script_bucket_arn,
           "${var.script_bucket_arn}/tmp/*",
           "${var.script_bucket_arn}/spark-history/*"
         ]
       },
-
-      # 4. GOLDEN BUCKET (WRITE)
       {
         Effect = "Allow"
-        Action = [
-          "s3:PutObject",
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
+        Action = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]
         Resource = [
           var.golden_bucket_arn,
           "${var.golden_bucket_arn}/*"
         ]
       },
-
-      # 5. KMS (ALL ENCRYPTED BUCKETS)
       {
         Effect = "Allow"
         Action = [
@@ -183,8 +177,6 @@ resource "aws_iam_policy" "glue_policy" {
         ]
         Resource = var.kms_key_arn
       },
-
-      # 6. CloudWatch Logs
       {
         Effect = "Allow"
         Action = [
