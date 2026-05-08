@@ -67,7 +67,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lineage, ctx = observability.NewLineage(ctx)
 
 	if lineage != nil {
+		stageStart := time.Now()
 		lineage.MarkStage("ingest")
+
+		// Lineage log
+		observability.Info(ctx, "lineage_stage_ingest",
+			zap.String("event_id", lineage.EventID),
+			zap.String("trace_id", lineage.TraceID),
+			zap.Any("stages", lineage.Stages()),
+		)
+
+		// Lineage metric
+		observability.ObserveLineageLatency(ctx, "ingest", stageStart)
 	}
 	// -------------------------------------------------------------------------
 

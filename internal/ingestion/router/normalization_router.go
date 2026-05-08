@@ -3,17 +3,27 @@ package router
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ajawes/hesp/internal/config"
+	"github.com/ajawes/hesp/internal/ingestion/api"
+	"github.com/ajawes/hesp/internal/ingestion/models"
 	"github.com/ajawes/hesp/internal/ingestion/normalizer"
 	"github.com/ajawes/hesp/internal/observability"
 	"go.uber.org/zap"
 )
 
-// NormalizationRouter maps Format → Normalizer.
+// -----------------------------------------------------------------------------
+// Public NormalizationRouter interface
+// -----------------------------------------------------------------------------
+
 type NormalizationRouter interface {
 	NormalizerFor(format config.Format) (normalizer.Normalizer, error)
 }
+
+// -----------------------------------------------------------------------------
+// Internal implementation
+// -----------------------------------------------------------------------------
 
 type normalizationRouterImpl struct {
 	normalizers map[config.Format]normalizer.Normalizer
@@ -29,6 +39,46 @@ func NewNormalizationRouter() NormalizationRouter {
 		},
 	}
 }
+
+// -----------------------------------------------------------------------------
+// ⭐ lineageNormalizer decorator
+// -----------------------------------------------------------------------------
+
+type lineageNormalizer struct {
+	inner normalizer.Normalizer
+}
+
+func (ln *lineageNormalizer) Normalize(ctx context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
+	stageStart := time.Now()
+
+	norm, err := ln.inner.Normalize(ctx, raw, env)
+	if err != nil {
+		return nil, err
+	}
+
+	// -------------------------------------------------------------------------
+	// ⭐ Mark normalization stage + log + metric
+	// -------------------------------------------------------------------------
+	if lineage := observability.GetLineage(ctx); lineage != nil {
+		lineage.MarkStage("normalized")
+
+		// Lineage log
+		observability.Info(ctx, "lineage_stage_normalized",
+			zap.String("event_id", lineage.EventID),
+			zap.String("trace_id", lineage.TraceID),
+			zap.Any("stages", lineage.Stages()),
+		)
+
+		// Lineage metric
+		observability.ObserveLineageLatency(ctx, "normalized", stageStart)
+	}
+
+	return norm, nil
+}
+
+// -----------------------------------------------------------------------------
+// ⭐ NormalizerFor now wraps normalizers with lineageNormalizer
+// -----------------------------------------------------------------------------
 
 func (r *normalizationRouterImpl) NormalizerFor(format config.Format) (normalizer.Normalizer, error) {
 	ctx := context.Background()
@@ -51,5 +101,6 @@ func (r *normalizationRouterImpl) NormalizerFor(format config.Format) (normalize
 		zap.String("normalizer", fmt.Sprintf("%T", n)),
 	)
 
-	return n, nil
+	// ⭐ Wrap normalizer with lineage behavior
+	return &lineageNormalizer{inner: n}, nil
 }
