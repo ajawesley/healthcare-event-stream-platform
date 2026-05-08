@@ -28,6 +28,9 @@ var (
 	lambdaErrorCount      metric.Int64Counter
 	lambdaLatency         metric.Float64Histogram
 
+	// Lineage metrics
+	lineageLatency metric.Float64Histogram
+
 	// Resource attributes
 	attrService     attribute.KeyValue
 	attrEnvironment attribute.KeyValue
@@ -97,6 +100,14 @@ func InitMetrics(serviceName, environment string) {
 	lambdaLatency, _ = meter.Float64Histogram(
 		"hesp_lambda_latency_ms",
 		metric.WithDescription("Lambda invocation latency in milliseconds"),
+	)
+
+	// -------------------------------
+	// Lineage metrics
+	// -------------------------------
+	lineageLatency, _ = meter.Float64Histogram(
+		"hesp_lineage_stage_latency_ms",
+		metric.WithDescription("Latency per lineage stage in milliseconds"),
 	)
 }
 
@@ -273,5 +284,30 @@ func RecordLambdaLatency(d time.Duration) {
 		context.Background(),
 		float64(d.Milliseconds()),
 		metric.WithAttributes(attrService, attrEnvironment),
+	)
+}
+
+//
+// ────────────────────────────────────────────────────────────────────────────────
+//   LINEAGE METRIC HELPERS
+// ────────────────────────────────────────────────────────────────────────────────
+//
+
+// ObserveLineageLatency records latency for a lineage stage.
+func ObserveLineageLatency(ctx context.Context, stage string, start time.Time) {
+	if lineageLatency == nil {
+		return
+	}
+
+	d := time.Since(start)
+
+	lineageLatency.Record(
+		ctx,
+		float64(d.Milliseconds()),
+		metric.WithAttributes(
+			attrService,
+			attrEnvironment,
+			attribute.String("lineage.stage", stage),
+		),
 	)
 }

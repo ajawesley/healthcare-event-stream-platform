@@ -41,7 +41,7 @@ func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dis
 
 // -----------------------------------------------------------------------------
 // Dispatch writes the canonical event + envelope + raw payload to S3.
-// Now includes trace_id + span_id in the S3 object payload.
+// Now includes trace_id + span_id + transmission_timestamp in the S3 payload.
 // -----------------------------------------------------------------------------
 func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	start := time.Now()
@@ -78,6 +78,11 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	)
 
 	// -------------------------------------------------------------------------
+	// Capture transmission timestamp BEFORE building payload
+	// -------------------------------------------------------------------------
+	transmissionTime := time.Now().UTC()
+
+	// -------------------------------------------------------------------------
 	// Include lineage stages in payload
 	// -------------------------------------------------------------------------
 	var lineageStages []observability.LineageStage
@@ -86,16 +91,17 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	}
 
 	// -------------------------------------------------------------------------
-	// Build S3 object payload (now includes trace_id + span_id)
+	// Build S3 object payload (trace_id, span_id, lineage, transmission_timestamp)
 	// -------------------------------------------------------------------------
 	obj := map[string]any{
-		"envelope":        env,
-		"canonical_event": event,
-		"raw":             string(raw),
-		"lineage":         lineageStages,
-		"trace_id":        traceID,
-		"span_id":         spanID,
-		"dispatched_at":   time.Now().UTC().Format(time.RFC3339Nano),
+		"envelope":               env,
+		"canonical_event":        event,
+		"raw":                    string(raw),
+		"lineage":                lineageStages,
+		"trace_id":               traceID,
+		"span_id":                spanID,
+		"transmission_timestamp": transmissionTime.Format(time.RFC3339Nano),
+		"dispatched_at":          time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	payload, err := json.Marshal(obj)
@@ -154,9 +160,20 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 
-	// Mark lineage stage: written
+	// -------------------------------------------------------------------------
+	// Mark lineage stage: written + log + metric
+	// -------------------------------------------------------------------------
 	if lineage := observability.GetLineage(ctx); lineage != nil {
+		stageStart := time.Now()
 		lineage.MarkStage("written")
+
+		observability.Info(ctx, "lineage_stage_written",
+			zap.String("event_id", lineage.EventID),
+			zap.String("trace_id", lineage.TraceID),
+			zap.Any("stages", lineage.Stages()),
+		)
+
+		observability.ObserveLineageLatency(ctx, "written", stageStart)
 	}
 
 	log.Info("s3_dispatch_success",

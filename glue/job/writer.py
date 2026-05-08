@@ -10,7 +10,10 @@ def write_output(df: DataFrame, output_base_path: str) -> None:
       - event_date (YYYY-MM-DD)
       - format_partition (string)
 
-    Assumes these columns were added by partitioner.py.
+    Adds pipeline-level metadata to Parquet footer:
+      - service.name
+      - pipeline.version
+      - lineage.enabled
     """
 
     required_cols = {"event_date", "format_partition"}
@@ -30,6 +33,19 @@ def write_output(df: DataFrame, output_base_path: str) -> None:
         record_count=count,
     )
 
+    # ----------------------------------------------------------------------
+    # ⭐ Add Parquet file-level metadata (Phase 2 requirement)
+    # ----------------------------------------------------------------------
+    spark = df.sparkSession
+
+    spark.conf.set("parquet.enable.summary-metadata", "true")
+    spark.conf.set("parquet.metadata.pipeline", "hesp")
+    spark.conf.set("parquet.metadata.pipeline_version", "1.0")
+    spark.conf.set("parquet.metadata.lineage_enabled", "true")
+
+    # ----------------------------------------------------------------------
+    # Write Parquet output
+    # ----------------------------------------------------------------------
     (
         df.write
         .mode("append")
