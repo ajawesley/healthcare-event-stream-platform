@@ -48,23 +48,15 @@ module "github_oidc" {
       Effect = "Allow"
       Action = [
         "sts:AssumeRole",
-
-        # Core infra this repo manages
         "ecr:*",
         "ecs:*",
         "elasticloadbalancing:*",
         "ec2:*",
-
-        # App/runtime services
         "lambda:*",
         "s3:*",
         "glue:*",
-
-        # Observability
         "cloudwatch:*",
         "logs:*",
-
-        # Needed to attach roles to ECS/Lambda/Glue, etc.
         "iam:PassRole"
       ]
       Resource = "*"
@@ -84,7 +76,7 @@ resource "aws_kms_key" "this" {
 }
 
 ############################################
-# Raw Events S3 Bucket (ROOT-LEVEL)
+# Raw Events S3 Bucket
 ############################################
 
 resource "aws_s3_bucket" "this" {
@@ -171,7 +163,7 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 ############################################
-# ALB Security Group (CORRECT NAME)
+# ALB Security Group
 ############################################
 
 resource "aws_security_group" "alb" {
@@ -244,7 +236,7 @@ module "vpc" {
 }
 
 ############################################
-# ALB Module
+# ALB Module (HTTP only)
 ############################################
 
 module "alb" {
@@ -256,6 +248,7 @@ module "alb" {
   subnet_ids            = module.vpc.public_subnets
   alb_security_group_id = aws_security_group.alb.id
 
+  # No ACM, no custom domain
   owner       = var.owner
   cost_center = var.cost_center
   tags        = local.base_tags
@@ -282,7 +275,7 @@ module "iam" {
 }
 
 ############################################
-# ECS Service Module (ADOT ENABLED)
+# ECS Service Module
 ############################################
 
 module "ecs_service" {
@@ -306,12 +299,10 @@ module "ecs_service" {
   cost_center             = var.cost_center
   tags                    = local.base_tags
 
-  # ADOT / OTEL
   enable_adot      = true
   adot_image       = "public.ecr.aws/aws-observability/aws-otel-collector:latest"
   adot_config_file = "${path.module}/otel/collector-config.yaml"
 
-  # Observability Vendor Keys
   dd_api_key        = var.dd_api_key
   honeycomb_api_key = var.honeycomb_api_key
   honeycomb_dataset = var.honeycomb_dataset
@@ -343,7 +334,7 @@ module "glue_job" {
 }
 
 ############################################
-# Lambda Build (Go)
+# Lambda Build
 ############################################
 
 resource "null_resource" "build_lambda" {

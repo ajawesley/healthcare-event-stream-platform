@@ -69,3 +69,11 @@ variable "honeycomb_dataset" {
   type    = string
   default = ""
 }
+
+# --- NEW: ACM Certificate ARN ---
+
+variable "acm_certificate_arn" {
+  type = string
+}
+
+
