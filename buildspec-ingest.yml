@@ -11,7 +11,8 @@ phases:
   build:
     commands:
       - echo Building Docker image...
-      - docker build -t $ECR_REPO:latest -t $ECR_REPO:$IMAGE_TAG ./cmd/ingest-service
+      - docker build -t $ECR_REPO:latest -t $ECR_REPO:$IMAGE_TAG -f cmd/ingest-service/Dockerfile .
+
 
   post_build:
     commands:
