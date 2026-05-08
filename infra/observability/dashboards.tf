@@ -10,9 +10,13 @@ resource "aws_cloudwatch_dashboard" "pipeline_observability" {
         width  = 24
         height = 2
         properties = {
-          markdown = "# HESP ${var.environment} – Pipeline Observability\nLatency, errors, and lineage health."
+          markdown = "# HESP ${var.environment} – Pipeline Observability\nLatency, errors, lineage health, and S3 ingestion metrics."
         }
       },
+
+      # -------------------------------------------------------------------
+      # Pipeline Latency (Phase 2.5)
+      # -------------------------------------------------------------------
       {
         type = "metric"
         x    = 0
@@ -54,6 +58,10 @@ resource "aws_cloudwatch_dashboard" "pipeline_observability" {
           period = 60
         }
       },
+
+      # -------------------------------------------------------------------
+      # Glue Errors / Schema Drift (Phase 2.5)
+      # -------------------------------------------------------------------
       {
         type = "metric"
         x    = 0
@@ -91,6 +99,10 @@ resource "aws_cloudwatch_dashboard" "pipeline_observability" {
           period = 300
         }
       },
+
+      # -------------------------------------------------------------------
+      # S3 Ingestion Metrics (Phase 2.6)
+      # -------------------------------------------------------------------
       {
         type = "metric"
         x    = 0
@@ -121,6 +133,46 @@ resource "aws_cloudwatch_dashboard" "pipeline_observability" {
           stacked = false
           metrics = [
             [ "HESP", "s3_ingested_bytes", "Environment", var.environment ]
+          ]
+          region = var.aws_region
+          stat   = "Sum"
+          period = 3600
+        }
+      },
+
+      # -------------------------------------------------------------------
+      # S3 Anomaly Metrics (Phase 2.6)
+      # -------------------------------------------------------------------
+      {
+        type = "metric"
+        x    = 0
+        y    = 20
+        width  = 12
+        height = 6
+        properties = {
+          title = "Large S3 Objects (>5MB)"
+          view  = "timeSeries"
+          stacked = false
+          metrics = [
+            [ "HESP", "s3_large_objects", "Environment", var.environment ]
+          ]
+          region = var.aws_region
+          stat   = "Sum"
+          period = 3600
+        }
+      },
+      {
+        type = "metric"
+        x    = 12
+        y    = 20
+        width  = 12
+        height = 6
+        properties = {
+          title = "Zero-Byte S3 Objects"
+          view  = "timeSeries"
+          stacked = false
+          metrics = [
+            [ "HESP", "s3_zero_byte_objects", "Environment", var.environment ]
           ]
           region = var.aws_region
           stat   = "Sum"
