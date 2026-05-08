@@ -44,22 +44,27 @@ resource "aws_ecs_task_definition" "this" {
 
       environment = concat(
         [
-          { name = "S3_BUCKET",        value = var.s3_bucket_name },
-          { name = "S3_KMS_KEY_ARN",   value = var.kms_key_arn },
-          { name = "S3_PREFIX",        value = var.s3_prefix }
+          { name = "S3_BUCKET", value = var.s3_bucket_name },
+          { name = "S3_KMS_KEY_ARN", value = var.kms_key_arn },
+          { name = "S3_PREFIX", value = var.s3_prefix }
         ],
         var.enable_adot ? [
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4317" },
-          { name = "OTEL_SERVICE_NAME",           value = var.app_name },
-          { name = "OTEL_PROPAGATORS",            value = "tracecontext,baggage" },
-          { name = "OTEL_TRACES_SAMPLER",         value = "parentbased_traceidratio" },
-          { name = "OTEL_TRACES_SAMPLER_ARG",     value = "1.0" },
-          { name = "OTEL_RESOURCE_ATTRIBUTES",
+          # OTEL endpoint must point to ADOT sidecar, NOT localhost
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://adot:4317" },
+
+          { name = "OTEL_SERVICE_NAME", value = var.app_name },
+          { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
+          { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
+          { name = "OTEL_TRACES_SAMPLER_ARG", value = "1.0" },
+
+          {
+            name  = "OTEL_RESOURCE_ATTRIBUTES",
             value = "service.name=${var.app_name},environment=${var.environment},deployment.environment=${var.environment},source_system=hesp-ecs"
           },
-          { name = "DD_API_KEY",          value = var.dd_api_key },
-          { name = "HONEYCOMB_API_KEY",   value = var.honeycomb_api_key },
-          { name = "HONEYCOMB_DATASET",   value = var.honeycomb_dataset }
+
+          { name = "DD_API_KEY", value = var.dd_api_key },
+          { name = "HONEYCOMB_API_KEY", value = var.honeycomb_api_key },
+          { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
         ] : []
       )
 
@@ -74,12 +79,12 @@ resource "aws_ecs_task_definition" "this" {
     },
 
     # ---------------------------------------------------------
-    # ADOT Collector Sidecar (Custom Image)
+    # ADOT Collector Sidecar
     # ---------------------------------------------------------
     var.enable_adot ? {
-      name      = "adot-collector"
+      name      = "adot"
       image     = var.adot_image
-      essential = true
+      essential = false
 
       portMappings = [
         { containerPort = 4317, protocol = "tcp" },
