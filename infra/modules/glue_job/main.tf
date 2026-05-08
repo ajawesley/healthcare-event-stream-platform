@@ -45,8 +45,11 @@ resource "aws_glue_job" "this" {
     # STATIC ONLY — Lambda overrides input_path at runtime
     "--output_base_path" = "s3://${var.golden_bucket}/"
     "--error_path"       = "s3://${var.golden_bucket}/errors/"
-  }
 
+    # Lineage-aware arguments (Glue job reads these from S3 JSON)
+    "--raw_bucket"       = var.raw_bucket
+    "--golden_bucket"    = var.golden_bucket
+  }
 
   glue_version      = "4.0"
   number_of_workers = 2

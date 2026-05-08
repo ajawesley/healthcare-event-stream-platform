@@ -248,7 +248,6 @@ module "alb" {
   subnet_ids            = module.vpc.public_subnets
   alb_security_group_id = aws_security_group.alb.id
 
-  # No ACM, no custom domain
   owner       = var.owner
   cost_center = var.cost_center
   tags        = local.base_tags
@@ -331,6 +330,19 @@ module "glue_job" {
 
   log_group_name = "/aws/glue/${var.app_name}-${var.environment}"
   tags           = local.base_tags
+}
+
+############################################
+# Glue Crawlers Module (NEW)
+############################################
+
+module "glue_crawlers" {
+  source      = "./modules/glue_crawlers"
+  environment = var.environment
+  tags        = local.base_tags
+
+  events_bucket = "${var.app_name}-${var.environment}-golden-events-001"
+  errors_bucket = "${var.app_name}-${var.environment}-golden-events-001/errors"
 }
 
 ############################################
