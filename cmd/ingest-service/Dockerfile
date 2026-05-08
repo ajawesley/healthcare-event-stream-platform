@@ -7,10 +7,12 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy service source
-COPY cmd/ingest-service/ .
+# Copy the entire repo (so internal packages resolve)
+COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ingest-service
+# Build the ingest-service binary
+WORKDIR /app/cmd/ingest-service
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /app/ingest-service
 
 # Runtime stage
 FROM alpine:3.19
