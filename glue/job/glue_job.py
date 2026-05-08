@@ -187,6 +187,60 @@ try:
         sys.exit(0)
 
     # ---------------------------------------------------------------------
+    # ⭐ Add glue_processed_at for lineage dashboards
+    # ---------------------------------------------------------------------
+    glue_processed_at = time.time()
+    valid_df = valid_df.withColumn("glue_processed_at", lit(glue_processed_at).cast(TimestampType()))
+
+    # ---------------------------------------------------------------------
+    # ⭐ Emit lineage completeness metrics
+    # ---------------------------------------------------------------------
+    metrics.increment("lineage_missing_trace_id", valid_df.filter(col("trace_id").isNull()).count())
+    metrics.increment("lineage_missing_event_id", valid_df.filter(col(required_id_col).isNull()).count())
+    metrics.increment("lineage_missing_transmission_ts", valid_df.filter(col("transmission_timestamp").isNull()).count())
+    metrics.increment("lineage_missing_s3_last_modified", valid_df.filter(col("s3_last_modified").isNull()).count())
+
+    # ---------------------------------------------------------------------
+    # ⭐ Emit stage latency metrics (ms)
+    # ---------------------------------------------------------------------
+    def ms(col_a, col_b):
+        return (col_b.cast("double") - col_a.cast("double")) * 1000.0
+
+    latency_df = valid_df.select(
+        ms(col("envelope.produced_at"), col("canonical_event.ingest_timestamp")).alias("ms_ingest_to_canonical"),
+        ms(col("canonical_event.ingest_timestamp"), col("canonical_event.canonicalization_timestamp")).alias("ms_canonical_to_write"),
+        ms(col("canonical_event.canonicalization_timestamp"), col("transmission_timestamp")).alias("ms_write_to_transmission"),
+        ms(col("transmission_timestamp"), col("s3_last_modified")).alias("ms_transmission_to_s3"),
+        ms(col("s3_last_modified"), col("glue_processed_at")).alias("ms_s3_to_glue"),
+        ms(col("envelope.produced_at"), col("glue_processed_at")).alias("ms_end_to_end"),
+    )
+
+    for row in latency_df.collect():
+        metrics.increment("pipeline_latency_ms_ingest_to_canonical", row["ms_ingest_to_canonical"])
+        metrics.increment("pipeline_latency_ms_canonical_to_write", row["ms_canonical_to_write"])
+        metrics.increment("pipeline_latency_ms_write_to_s3", row["ms_write_to_transmission"])
+        metrics.increment("pipeline_latency_ms_s3_to_glue", row["ms_s3_to_glue"])
+        metrics.increment("pipeline_latency_ms_end_to_end", row["ms_end_to_end"])
+
+    # ---------------------------------------------------------------------
+    # ⭐ Replay + Late Arrival Metrics
+    # ---------------------------------------------------------------------
+    replay_counts = (
+        valid_df.groupBy("canonical_event.event_id")
+        .count()
+        .filter(col("count") > 1)
+        .count()
+    )
+    metrics.increment("replay_events", replay_counts)
+
+    late_arrivals = (
+        valid_df.filter(
+            (col("s3_last_modified").cast("long") - col("transmission_timestamp").cast("long")) > 300
+        ).count()
+    )
+    metrics.increment("late_arrival_events", late_arrivals)
+
+    # ---------------------------------------------------------------------
     # Flatten + partition
     # ---------------------------------------------------------------------
     log.info("flattening_fields_for_partitioning")
@@ -195,13 +249,13 @@ try:
         valid_df
         .withColumn("produced_at", col("envelope.produced_at"))
         .withColumn("format", col("canonical_event.format"))
-        # ⭐ Include lineage + timestamps + S3 metadata in output
         .withColumn("lineage_json", col("lineage_json"))
         .withColumn("transmission_timestamp", col("transmission_timestamp"))
         .withColumn("dispatched_at", col("dispatched_at"))
         .withColumn("s3_last_modified", col("s3_last_modified"))
         .withColumn("trace_id", col("trace_id"))
         .withColumn("span_id", col("span_id"))
+        .withColumn("glue_processed_at", col("glue_processed_at"))
     )
 
     log.info("adding_partition_columns")
