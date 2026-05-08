@@ -1,0 +1,25 @@
+# Build stage
+FROM golang:1.25 AS builder
+
+WORKDIR /app
+
+# Copy module files from repo root
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy entire repo so internal packages resolve
+COPY . .
+
+# Build the ingest-service binary
+WORKDIR /app/cmd/ingest-service
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /app/ingest-service
+
+# Runtime stage
+FROM alpine:3.19
+
+WORKDIR /app
+COPY --from=builder /app/ingest-service .
+
+EXPOSE 8080
+
+CMD ["./ingest-service"]
