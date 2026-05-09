@@ -1,7 +1,7 @@
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, to_timestamp, to_date
 
-from glue.job.hesp_logging import get_logger
+from hesp_logging import get_logger
 
 log = get_logger()
 

@@ -236,7 +236,7 @@ module "vpc" {
 }
 
 ############################################
-# ALB Module (HTTP only)
+# ALB Module
 ############################################
 
 module "alb" {
@@ -260,6 +260,7 @@ module "alb" {
 module "iam" {
   source = "./modules/iam"
 
+  app_name    = var.app_name
   environment = var.environment
   owner       = var.owner
   cost_center = var.cost_center
@@ -302,10 +303,8 @@ module "ecs_service" {
 
   enable_adot = true
 
-  # Custom ADOT image
   adot_image = "045797643729.dkr.ecr.us-east-1.amazonaws.com/hesp-adot:latest"
 
-  # Secrets Manager ARNs
   honeycomb_api_key = var.honeycomb_api_key
   honeycomb_dataset = var.honeycomb_dataset
 }
@@ -336,7 +335,7 @@ module "glue_job" {
 }
 
 ############################################
-# Glue Crawlers Module (NEW)
+# Glue Crawlers Module
 ############################################
 
 module "glue_crawlers" {
@@ -377,6 +376,9 @@ module "lambda_trigger" {
   environment = var.environment
   owner       = var.owner
   cost_center = var.cost_center
+
+  output_base_path = var.s3_output_base_path
+  error_path       = var.s3_error_path
 
   glue_job_name = module.glue_job.glue_job_name
   glue_job_arn  = module.glue_job.glue_job_arn
@@ -419,4 +421,26 @@ resource "aws_s3_bucket_notification" "raw_events_trigger" {
     module.lambda_trigger,
     aws_lambda_permission.s3_invoke
   ]
+}
+
+############################################
+# ⭐ Observability Module (NEW)
+############################################
+
+module "observability" {
+  source = "./modules/observability"
+
+  environment = var.environment
+  aws_region  = var.aws_region
+  app_name    = var.app_name
+  tags        = local.base_tags
+
+  raw_bucket_arn          = aws_s3_bucket.this.arn
+  access_logs_bucket_name = aws_s3_bucket.access_logs.bucket
+
+  ecs_cluster_name = aws_ecs_cluster.cluster.name
+  ecs_service_name = "${var.app_name}-${var.environment}-svc"
+
+  alb_arn          = module.alb.alb_arn
+  target_group_arn = module.alb.target_group_arn
 }
