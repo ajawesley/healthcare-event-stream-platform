@@ -58,7 +58,7 @@ resource "aws_cloudtrail" "s3_data_events" {
     include_management_events = false
 
     data_resource {
-      type   = "AWS::S3::Object"
+      type = "AWS::S3::Object"
       values = [
         "${aws_s3_bucket.this.arn}/",                                        # raw bucket
         "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001/" # golden bucket

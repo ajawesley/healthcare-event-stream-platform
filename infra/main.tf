@@ -268,6 +268,8 @@ module "iam" {
   script_bucket_arn = "arn:aws:s3:::${var.script_bucket}"
   golden_bucket_arn = "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001"
 
+  honeycomb_api_key = var.honeycomb_api_key
+
   kms_key_arn   = aws_kms_key.this.arn
   log_group_arn = aws_cloudwatch_log_group.ecs.arn
   tags          = local.base_tags
@@ -298,11 +300,12 @@ module "ecs_service" {
   cost_center             = var.cost_center
   tags                    = local.base_tags
 
-  enable_adot      = true
-  adot_image       = "public.ecr.aws/aws-observability/aws-otel-collector:latest"
-  adot_config_file = "${path.module}/otel/collector-config.yaml"
+  enable_adot = true
 
-  dd_api_key        = var.dd_api_key
+  # Custom ADOT image
+  adot_image = "045797643729.dkr.ecr.us-east-1.amazonaws.com/hesp-adot:latest"
+
+  # Secrets Manager ARNs
   honeycomb_api_key = var.honeycomb_api_key
   honeycomb_dataset = var.honeycomb_dataset
 }

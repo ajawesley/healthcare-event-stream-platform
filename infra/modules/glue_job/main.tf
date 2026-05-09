@@ -47,8 +47,8 @@ resource "aws_glue_job" "this" {
     "--error_path"       = "s3://${var.golden_bucket}/errors/"
 
     # Lineage-aware arguments (Glue job reads these from S3 JSON)
-    "--raw_bucket"       = var.raw_bucket
-    "--golden_bucket"    = var.golden_bucket
+    "--raw_bucket"    = var.raw_bucket
+    "--golden_bucket" = var.golden_bucket
   }
 
   glue_version      = "4.0"
