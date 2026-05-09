@@ -49,7 +49,10 @@ resource "aws_ecs_task_definition" "this" {
           { name = "S3_PREFIX", value = var.s3_prefix }
         ],
         var.enable_adot ? [
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "adot:4317" },
+          # OTLP HTTP → ADOT sidecar
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://adot:4318" },
+          { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" },
+
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
           { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
           { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
@@ -88,6 +91,7 @@ resource "aws_ecs_task_definition" "this" {
       image     = var.adot_image
       essential = false
 
+      # ADOT exposes OTLP gRPC (4317), OTLP HTTP (4318), health (13133)
       portMappings = [
         { containerPort = 4317, protocol = "tcp" },
         { containerPort = 4318, protocol = "tcp" },

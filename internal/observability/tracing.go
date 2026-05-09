@@ -7,27 +7,26 @@ import (
     "time"
 
     "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
     "go.opentelemetry.io/otel/sdk/resource"
     sdktrace "go.opentelemetry.io/otel/sdk/trace"
     semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-    "google.golang.org/grpc"
-    "google.golang.org/grpc/credentials/insecure"
 )
 
 // InitTracing initializes OpenTelemetry tracing and returns a shutdown function.
-// This works for ECS, Lambda, and local dev.
 func InitTracing(serviceName, version, environment string) func(ctx context.Context) error {
     ctx := context.Background()
 
     // -----------------------------------------
-    // OTLP endpoint (env‑driven)
+    // OTLP endpoint (env‑driven, HTTP)
     // -----------------------------------------
     endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if endpoint == "" {
-        endpoint = "adot:4317"
+        // Default to ADOT sidecar OTLP HTTP
+        endpoint = "adot:4318"
     }
-    fmt.Printf("[OTEL] Using OTLP endpoint: %s\n", endpoint)
+    fmt.Printf("[OTEL] Using OTLP HTTP endpoint: %s\n", endpoint)
 
     // -----------------------------------------
     // Cloud region (env‑driven)
@@ -42,34 +41,25 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
     fmt.Printf("[OTEL] Using cloud region: %s\n", region)
 
     // -----------------------------------------
-    // gRPC connection to OTEL collector
+    // OTLP HTTP exporter client
     // -----------------------------------------
-    fmt.Printf("[OTEL] Attempting gRPC dial to collector...\n")
+    fmt.Printf("[OTEL] Initializing OTLP HTTP exporter...\n")
 
-    conn, err := grpc.DialContext(
-        ctx,
-        endpoint,
-        grpc.WithTransportCredentials(insecure.NewCredentials()),
-        grpc.WithBlock(),
-        grpc.WithTimeout(5*time.Second),
+    client := otlptracehttp.NewClient(
+        otlptracehttp.WithEndpoint(endpoint),
+        otlptracehttp.WithInsecure(),
     )
+
+    exporter, err := otlptrace.New(ctx, client)
     if err != nil {
-        fmt.Printf("[OTEL ERROR] grpc.DialContext failed: %v\n", err)
+        fmt.Printf("[OTEL ERROR] otlptrace.New failed: %v\n", err)
         return func(context.Context) error { return nil }
     }
 
-    fmt.Printf("[OTEL] gRPC dial successful.\n")
-
-    exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
-    if err != nil {
-        fmt.Printf("[OTEL ERROR] otlptracegrpc.New failed: %v\n", err)
-        return func(context.Context) error { return nil }
-    }
-
-    fmt.Printf("[OTEL] OTLP gRPC exporter initialized.\n")
+    fmt.Printf("[OTEL] OTLP HTTP exporter initialized.\n")
 
     // -----------------------------------------
-    // Resource attributes (critical for Datadog/Honeycomb/X-Ray)
+    // Resource attributes
     // -----------------------------------------
     res, err := resource.New(
         ctx,
@@ -103,10 +93,15 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
     // -----------------------------------------
     return func(ctx context.Context) error {
         fmt.Printf("[OTEL] Shutting down tracer provider...\n")
-        if err := tp.Shutdown(ctx); err != nil {
+
+        shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+        defer cancel()
+
+        if err := tp.Shutdown(shutdownCtx); err != nil {
             fmt.Printf("[OTEL ERROR] Shutdown failed: %v\n", err)
             return err
         }
+
         fmt.Printf("[OTEL] Shutdown complete.\n")
         return nil
     }
