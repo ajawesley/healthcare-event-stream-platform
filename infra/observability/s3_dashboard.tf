@@ -24,7 +24,7 @@ resource "aws_cloudwatch_dashboard" "s3_ingestion" {
           "view" : "timeSeries",
           "stacked" : false,
           "metrics" : [
-            [ "HESP", "s3_ingested_objects", "Environment", var.environment ]
+            ["HESP", "s3_ingested_objects", "Environment", var.environment]
           ],
           "region" : var.aws_region,
           "stat" : "Sum",
@@ -42,7 +42,7 @@ resource "aws_cloudwatch_dashboard" "s3_ingestion" {
           "view" : "timeSeries",
           "stacked" : false,
           "metrics" : [
-            [ "HESP", "s3_ingested_bytes", "Environment", var.environment ]
+            ["HESP", "s3_ingested_bytes", "Environment", var.environment]
           ],
           "region" : var.aws_region,
           "stat" : "Sum",
@@ -60,7 +60,7 @@ resource "aws_cloudwatch_dashboard" "s3_ingestion" {
           "view" : "timeSeries",
           "stacked" : false,
           "metrics" : [
-            [ "HESP", "s3_large_objects", "Environment", var.environment ]
+            ["HESP", "s3_large_objects", "Environment", var.environment]
           ],
           "region" : var.aws_region,
           "stat" : "Sum",
@@ -78,7 +78,7 @@ resource "aws_cloudwatch_dashboard" "s3_ingestion" {
           "view" : "timeSeries",
           "stacked" : false,
           "metrics" : [
-            [ "HESP", "s3_zero_byte_objects", "Environment", var.environment ]
+            ["HESP", "s3_zero_byte_objects", "Environment", var.environment]
           ],
           "region" : var.aws_region,
           "stat" : "Sum",

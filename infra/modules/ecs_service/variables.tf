@@ -1,3 +1,7 @@
+############################################################
+# Core ECS Service Variables
+############################################################
+
 variable "app_name" {
   type = string
 }
@@ -67,37 +71,31 @@ variable "tags" {
   type = map(string)
 }
 
-# --- ADOT / OTEL ---
+############################################################
+# ADOT / OpenTelemetry
+############################################################
 
 variable "enable_adot" {
   type    = bool
   default = true
 }
 
+# Custom ADOT image (must include /etc/otel/config.yaml)
 variable "adot_image" {
-  type    = string
-  default = "public.ecr.aws/aws-observability/aws-otel-collector:latest"
-}
-
-variable "adot_config_file" {
   type = string
 }
 
-# --- Observability Vendor Keys ---
+############################################################
+# Observability Vendor Keys (Honeycomb)
+############################################################
 
-variable "dd_api_key" {
-  type      = string
-  default   = ""
-  sensitive = true
-}
-
+# IMPORTANT:
+# This must be a Secrets Manager ARN, not a raw string.
 variable "honeycomb_api_key" {
   type      = string
-  default   = ""
   sensitive = true
 }
 
 variable "honeycomb_dataset" {
-  type    = string
-  default = ""
+  type = string
 }
