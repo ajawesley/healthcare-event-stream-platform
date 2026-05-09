@@ -31,7 +31,7 @@ resource "aws_ecs_task_definition" "this" {
     # ---------------------------------------------------------
     {
       name      = var.app_name
-      image     = var.container_image   # <── THIS IS NOW EXPLICIT
+      image     = var.container_image
       essential = true
 
       portMappings = [
@@ -49,7 +49,7 @@ resource "aws_ecs_task_definition" "this" {
           { name = "S3_PREFIX", value = var.s3_prefix }
         ],
         var.enable_adot ? [
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://adot:4317" },
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "adot:4317" },
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
           { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
           { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
@@ -58,11 +58,17 @@ resource "aws_ecs_task_definition" "this" {
             name  = "OTEL_RESOURCE_ATTRIBUTES",
             value = "service.name=${var.app_name},environment=${var.environment},deployment.environment=${var.environment},source_system=hesp-ecs"
           },
-          { name = "DD_API_KEY", value = var.dd_api_key },
-          { name = "HONEYCOMB_API_KEY", value = var.honeycomb_api_key },
           { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
         ] : []
       )
+
+      # Only add secrets if ADOT is enabled AND honeycomb_api_key is non-empty
+      secrets = var.enable_adot && length(trimspace(var.honeycomb_api_key)) > 0 ? [
+        {
+          name      = "HONEYCOMB_API_KEY"
+          valueFrom = var.honeycomb_api_key
+        }
+      ] : []
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -84,12 +90,24 @@ resource "aws_ecs_task_definition" "this" {
 
       portMappings = [
         { containerPort = 4317, protocol = "tcp" },
-        { containerPort = 4318, protocol = "tcp" }
+        { containerPort = 4318, protocol = "tcp" },
+        { containerPort = 13133, protocol = "tcp" }
       ]
 
-      command = [
-        "--config=/etc/otel/config.yaml"
+      environment = [
+        { name = "AWS_REGION", value = "us-east-1" },
+        { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
       ]
+
+      # Only add secrets if honeycomb_api_key is non-empty
+      secrets = length(trimspace(var.honeycomb_api_key)) > 0 ? [
+        {
+          name      = "HONEYCOMB_API_KEY"
+          valueFrom = var.honeycomb_api_key
+        }
+      ] : []
+
+      # ADOT config baked into image at /etc/otel/config.yaml
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -99,7 +117,16 @@ resource "aws_ecs_task_definition" "this" {
           awslogs-stream-prefix = "adot"
         }
       }
+
+      #healthCheck = {
+      #  command     = ["CMD-SHELL", "curl -f http://localhost:13133/health || exit 1"]
+      #  interval    = 30
+      #  timeout     = 5
+      #  retries     = 3
+      #  startPeriod = 10
+      #}
     } : null
+
   ])
 
   tags = local.base_tags

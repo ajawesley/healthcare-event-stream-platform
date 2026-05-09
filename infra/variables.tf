@@ -51,23 +51,15 @@ variable "tags" {
   default = {}
 }
 
-# --- Observability Vendor Keys ---
-
-variable "dd_api_key" {
-  type      = string
-  default   = ""
-  sensitive = true
-}
+# --- Observability Vendor Keys (Secrets Manager ARNs) ---
 
 variable "honeycomb_api_key" {
   type      = string
-  default   = ""
   sensitive = true
 }
 
 variable "honeycomb_dataset" {
-  type    = string
-  default = ""
+  type = string
 }
 
 # --- NEW: ACM Certificate ARN ---
@@ -75,5 +67,3 @@ variable "honeycomb_dataset" {
 variable "acm_certificate_arn" {
   type = string
 }
-
-

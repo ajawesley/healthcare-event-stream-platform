@@ -16,10 +16,10 @@ script_bucket       = "hesp-dev-glue-scripts-001"
 glue_script_s3_path = "s3://hesp-dev-glue-scripts-001/scripts/glue_job.py"
 glue_temp_dir       = "s3://hesp-dev-glue-scripts-001/tmp/"
 
-# --- Observability Vendor Keys ---
-dd_api_key        = "" # optional
-honeycomb_api_key = "" # optional
-honeycomb_dataset = "" # optional
+# --- Observability Vendor Keys (Secrets Manager ARNs) ---
+#honeycomb_api_key = "arn:aws:secretsmanager:us-east-1:045797643729:secret:hesp/honeycomb-api-key-xxxxx"
+honeycomb_api_key = ""
+honeycomb_dataset = "hesp-dev"
 
-# --- NEW: ACM Certificate ARN (Option A workflow) ---
+# --- NEW: ACM Certificate ARN ---
 acm_certificate_arn = "REPLACE_ME_WITH_REAL_ACM_ARN"

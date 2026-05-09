@@ -103,7 +103,7 @@ resource "aws_cloudwatch_metric_alarm" "pipeline_latency" {
   namespace           = "HESP"
   period              = 300
   statistic           = "Average"
-  threshold           = 300000   # 5 minutes
+  threshold           = 300000 # 5 minutes
   alarm_description   = "Triggers when end-to-end pipeline latency exceeds 5 minutes."
   alarm_actions       = [aws_sns_topic.hesp_alerts.arn]
 }

@@ -2,6 +2,8 @@ package observability
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -51,12 +53,12 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 	)
 	if err != nil {
 		// Fail open — tracing disabled but service still runs
-		return func(context.Context) error { return nil }
+		return func(context.Context) error { return errors.New(fmt.Sprintf("grpc.DianContext failed: %+v", err)) }
 	}
 
 	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
-		return func(context.Context) error { return nil }
+		return func(context.Context) error { return errors.New(fmt.Sprintf("oltptracegrpc.New failed: %+v", err)) }
 	}
 
 	// -----------------------------------------
@@ -72,7 +74,7 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 		),
 	)
 	if err != nil {
-		return func(context.Context) error { return nil }
+		return func(context.Context) error { return errors.New(fmt.Sprintf("resource.New failed: %+v", err)) }
 	}
 
 	// -----------------------------------------
