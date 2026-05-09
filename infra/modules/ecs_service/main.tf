@@ -50,7 +50,7 @@ resource "aws_ecs_task_definition" "this" {
         ],
         var.enable_adot ? [
           # OTLP HTTP → ADOT sidecar
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://adot:4318" },
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "localhost:4318" },
           { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" },
 
           { name = "OTEL_SERVICE_NAME", value = var.app_name },

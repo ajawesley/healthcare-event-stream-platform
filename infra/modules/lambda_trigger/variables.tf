@@ -45,3 +45,11 @@ variable "lambda_zip_path" {
 variable "kms_key_arn" {
   type = string
 }
+
+variable "output_base_path" {
+  type = string
+}
+
+variable "error_path" {
+  type = string
+}

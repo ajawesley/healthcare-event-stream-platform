@@ -28,10 +28,34 @@ resource "aws_lambda_function" "this" {
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
+  tracing_config {
+    mode = "Active" # Enables AWS X-Ray
+  }
+
   environment {
     variables = {
-      GLUE_JOB_NAME = var.glue_job_name
-      RAW_BUCKET    = var.raw_bucket_name
+      ############################################
+      # Existing variables
+      ############################################
+      GLUE_JOB_NAME    = var.glue_job_name
+      RAW_BUCKET       = var.raw_bucket_name
+      OUTPUT_BASE_PATH = var.output_base_path
+      ERROR_PATH       = var.error_path
+
+      ############################################
+      # ADOT + OTEL required variables
+      ############################################
+      AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-handler"
+
+      OTEL_TRACES_EXPORTER        = "otlp"
+      OTEL_EXPORTER_OTLP_ENDPOINT = "http://0.0.0.0:4318"
+      OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+
+      OTEL_PROPAGATORS = "xray"
+
+      OTEL_SERVICE_NAME = "${var.app_name}-${var.environment}-lambda"
+
+      ENVIRONMENT = var.environment
     }
   }
 
@@ -128,13 +152,12 @@ resource "aws_iam_policy" "lambda_kms" {
   })
 }
 
-
 ############################################
 # Attach Policies to Lambda Role
 ############################################
 
 resource "aws_iam_role_policy_attachment" "lambda_glue_attach" {
-  role       = var.lambda_role_name # FIXED: no brittle ARN splitting
+  role       = var.lambda_role_name
   policy_arn = aws_iam_policy.lambda_glue_policy.arn
 
   depends_on = [aws_iam_policy.lambda_glue_policy]
