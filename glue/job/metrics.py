@@ -5,7 +5,7 @@ from typing import Dict
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from glue.job.hesp_logging import get_logger
+from hesp_logging import get_logger
 
 log = get_logger()
 

@@ -51,6 +51,14 @@ variable "tags" {
   default = {}
 }
 
+variable "s3_output_base_path" {
+  type = string
+}
+
+variable "s3_error_path" {
+  type = string
+}
+
 # --- Observability Vendor Keys (Secrets Manager ARNs) ---
 
 variable "honeycomb_api_key" {

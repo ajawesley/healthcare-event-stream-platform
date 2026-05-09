@@ -1,5 +1,5 @@
 from pyspark.sql import DataFrame
-from glue.job.hesp_logging import get_logger
+from hesp_logging import get_logger
 
 log = get_logger()
 
