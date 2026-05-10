@@ -12,38 +12,6 @@ resource "aws_cloudwatch_log_group" "s3_data_events" {
   }
 }
 
-resource "aws_iam_role" "cloudtrail_s3_role" {
-  name = "${var.app_name}-${var.environment}-cloudtrail-s3-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "cloudtrail.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "cloudtrail_s3_policy" {
-  name = "${var.app_name}-${var.environment}-cloudtrail-s3-policy"
-  role = aws_iam_role.cloudtrail_s3_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "${aws_cloudwatch_log_group.s3_data_events.arn}:*"
-      }
-    ]
-  })
-}
-
 resource "aws_cloudtrail" "s3_data_events" {
   name                          = "${var.app_name}-${var.environment}-s3-data-events"
   s3_bucket_name                = var.access_logs_bucket_name
@@ -51,7 +19,7 @@ resource "aws_cloudtrail" "s3_data_events" {
   is_multi_region_trail         = false
   enable_logging                = true
   cloud_watch_logs_group_arn    = "${aws_cloudwatch_log_group.s3_data_events.arn}:*"
-  cloud_watch_logs_role_arn     = aws_iam_role.cloudtrail_s3_role.arn
+  cloud_watch_logs_role_arn     = var.cloudtrail_s3_role_arn
 
   event_selector {
     read_write_type           = "WriteOnly"
@@ -67,8 +35,8 @@ resource "aws_cloudtrail" "s3_data_events" {
   }
 
   depends_on = [
-    aws_iam_role.cloudtrail_s3_role,
-    aws_iam_role_policy.cloudtrail_s3_policy
+    aws_cloudwatch_log_group.s3_data_events,
+    aws_s3_bucket_policy.access_logs_cloudtrail
   ]
 }
 

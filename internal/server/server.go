@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/ajawes/hesp/internal/config"
+	"github.com/ajawes/hesp/internal/ingestion/compliance"
 	"github.com/ajawes/hesp/internal/ingestion/detector"
 	"github.com/ajawes/hesp/internal/ingestion/dispatcher"
 	"github.com/ajawes/hesp/internal/ingestion/handler"
@@ -18,12 +19,30 @@ import (
 )
 
 type Server struct {
-	httpServer *http.Server
-	router     *router.FormatRouter
-	shutdownFn func(context.Context) error
+	httpServer      *http.Server
+	router          *router.FormatRouter
+	complianceGuard *compliance.Guard
+	complianceDB    compliance.ClientAPI
+	shutdownFn      func(context.Context) error
 }
 
-func New() *Server {
+type Option func(*Server)
+
+func WithComplianceGuard(g *compliance.Guard) Option {
+	return func(s *Server) { s.complianceGuard = g }
+}
+
+func WithComplianceClient(c compliance.ClientAPI) Option {
+	return func(s *Server) { s.complianceDB = c }
+}
+
+func New(opts ...Option) *Server {
+	s := &Server{}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
 	mux := http.NewServeMux()
 
 	// Build ingestion router WITHOUT dispatcher (we inject it later in Start)
@@ -33,11 +52,53 @@ func New() *Server {
 		router.WithTransformationRouter(router.NewTransformationRouter()),
 	)
 
+	// Inject compliance guard if provided
+	if s.complianceGuard != nil {
+		ingestRouter = router.NewFormatRouter(
+			router.WithDetector(detector.NewDetector()),
+			router.WithNormalizationRouter(router.NewNormalizationRouter()),
+			router.WithTransformationRouter(router.NewTransformationRouter()),
+			router.WithComplianceGuard(s.complianceGuard),
+		)
+	}
+
 	ingestHandler := handler.NewHandler(
 		handler.WithRouter(ingestRouter),
 	)
 
-	// Health check
+	// -------------------------------------------------------------------------
+	// Health endpoints
+	// -------------------------------------------------------------------------
+
+	// Liveness — container is running
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("alive"))
+	})
+
+	// Readiness — dependencies ready
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		// Check compliance DB readiness
+		if s.complianceDB != nil {
+			if err := s.complianceDB.Ready(r.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("compliance db not ready"))
+				return
+			}
+		}
+
+		// Check router + dispatcher
+		if s.router == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("router not ready"))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
+	})
+
+	// Existing health check
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -46,14 +107,13 @@ func New() *Server {
 	// Ingestion endpoint
 	mux.Handle("/events/ingest", ingestHandler)
 
-	return &Server{
-		httpServer: &http.Server{
-			Addr: ":8080",
-			// Middleware will be injected in Start()
-			Handler: mux,
-		},
-		router: ingestRouter,
+	s.httpServer = &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
 	}
+	s.router = ingestRouter
+
+	return s
 }
 
 func (s *Server) Start() error {
@@ -69,6 +129,24 @@ func (s *Server) Start() error {
 		"dev",
 	)
 	s.shutdownFn = shutdownTracing
+
+	// -----------------------------
+	// Compliance DB Wiring
+	// -----------------------------
+	dbCfg := compliance.Config{
+		Host:     config.GetEnv("COMPLIANCE_DB_HOST", ""),
+		Port:     config.GetEnvInt("COMPLIANCE_DB_PORT", 5432),
+		User:     config.GetEnv("COMPLIANCE_DB_USER", ""),
+		Password: config.GetEnv("COMPLIANCE_DB_PASSWORD", ""),
+		Database: config.GetEnv("COMPLIANCE_DB_NAME", ""),
+	}
+
+	compClient, err := compliance.NewClient(context.Background(), dbCfg)
+	if err != nil {
+		log.Fatalf("failed to initialize compliance db client: %v", err)
+	}
+
+	s.complianceDB = compClient
 
 	// -----------------------------
 	// AWS + Dispatcher Wiring
@@ -92,7 +170,6 @@ func (s *Server) Start() error {
 
 	// -----------------------------
 	// Inject Observability Middleware
-	// (This will be replaced with your new ECS middleware)
 	// -----------------------------
 	s.httpServer.Handler = observability.ObservabilityMiddleware(s.httpServer.Handler)
 

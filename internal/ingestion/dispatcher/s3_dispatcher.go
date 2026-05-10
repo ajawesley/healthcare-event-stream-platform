@@ -41,7 +41,13 @@ func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dis
 
 // -----------------------------------------------------------------------------
 // Dispatch writes the canonical event + envelope + raw payload to S3.
-// Now includes trace_id + span_id + transmission_timestamp in the S3 payload.
+// Includes:
+//   - trace_id / span_id
+//   - lineage stages
+//   - compliance metadata (inside canonical_event)
+//   - transmission_timestamp
+//   - dispatched_at
+//
 // -----------------------------------------------------------------------------
 func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	start := time.Now()
@@ -77,13 +83,11 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
-	// -------------------------------------------------------------------------
-	// Capture transmission timestamp BEFORE building payload
-	// -------------------------------------------------------------------------
+	// Transmission timestamp BEFORE payload build
 	transmissionTime := time.Now().UTC()
 
 	// -------------------------------------------------------------------------
-	// Include lineage stages in payload
+	// Lineage stages
 	// -------------------------------------------------------------------------
 	var lineageStages []observability.LineageStage
 	if lineage := observability.GetLineage(ctx); lineage != nil {
@@ -91,11 +95,11 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	}
 
 	// -------------------------------------------------------------------------
-	// Build S3 object payload (trace_id, span_id, lineage, transmission_timestamp)
+	// Build S3 object payload
 	// -------------------------------------------------------------------------
 	obj := map[string]any{
 		"envelope":               env,
-		"canonical_event":        event,
+		"canonical_event":        event, // includes compliance metadata
 		"raw":                    string(raw),
 		"lineage":                lineageStages,
 		"trace_id":               traceID,
@@ -129,7 +133,7 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	)
 
 	// -------------------------------------------------------------------------
-	// Write to S3 (with latency metrics)
+	// Write to S3
 	// -------------------------------------------------------------------------
 	s3Start := time.Now()
 
@@ -145,7 +149,6 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 
 	s3Duration := time.Since(s3Start)
 
-	// Record S3 latency metric
 	observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, err == nil)
 
 	if err != nil {
@@ -161,7 +164,7 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	}
 
 	// -------------------------------------------------------------------------
-	// Mark lineage stage: written + log + metric
+	// Mark lineage stage: written
 	// -------------------------------------------------------------------------
 	if lineage := observability.GetLineage(ctx); lineage != nil {
 		stageStart := time.Now()
