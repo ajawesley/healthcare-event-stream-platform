@@ -20,10 +20,15 @@ script_bucket       = "hesp-dev-glue-scripts-001"
 glue_script_s3_path = "s3://hesp-dev-glue-scripts-001/scripts/glue_job.py"
 glue_temp_dir       = "s3://hesp-dev-glue-scripts-001/tmp/"
 
-# --- Observability Vendor Keys (Secrets Manager ARNs) ---
-#honeycomb_api_key = "arn:aws:secretsmanager:us-east-1:045797643729:secret:hesp/honeycomb-api-key-xxxxx"
-honeycomb_api_key = ""
-honeycomb_dataset = "hesp-dev"
+
 
 # --- NEW: ACM Certificate ARN ---
 acm_certificate_arn = "REPLACE_ME_WITH_REAL_ACM_ARN"
+
+compliance_db_password_secret_arn = "arn:aws:secretsmanager:us-east-1:045797643729:secret:hesp/compliance-db-password-vOL4A7"
+compliance_db_name                = "hesp_compliance"
+compliance_db_username            = "ajawe"
+compliance_db_host                = "hesp-dev-compliance-db.ccp046i8yfzy.us-east-1.rds.amazonaws.com"
+compliance_db_port                = 5432
+
+

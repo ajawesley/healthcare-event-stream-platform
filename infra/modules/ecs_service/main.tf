@@ -26,9 +26,6 @@ resource "aws_ecs_task_definition" "this" {
   task_role_arn      = var.task_role_arn
 
   container_definitions = jsonencode([
-    # ---------------------------------------------------------
-    # Main Application Container
-    # ---------------------------------------------------------
     {
       name      = var.app_name
       image     = var.container_image
@@ -46,13 +43,19 @@ resource "aws_ecs_task_definition" "this" {
         [
           { name = "S3_BUCKET", value = var.s3_bucket_name },
           { name = "S3_KMS_KEY_ARN", value = var.kms_key_arn },
-          { name = "S3_PREFIX", value = var.s3_prefix }
+          { name = "S3_PREFIX", value = var.s3_prefix },
+
+          # -------------------------------
+          # Compliance DB Environment Vars
+          # -------------------------------
+          { name = "COMPLIANCE_DB_HOST", value = var.compliance_db_host },
+          { name = "COMPLIANCE_DB_PORT", value = tostring(var.compliance_db_port) },
+          { name = "COMPLIANCE_DB_NAME", value = var.compliance_db_name },
+          { name = "COMPLIANCE_DB_USER", value = var.compliance_db_username }
         ],
         var.enable_adot ? [
-          # OTLP HTTP → ADOT sidecar
           { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "localhost:4318" },
           { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" },
-
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
           { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
           { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
@@ -60,18 +63,19 @@ resource "aws_ecs_task_definition" "this" {
           {
             name  = "OTEL_RESOURCE_ATTRIBUTES",
             value = "service.name=${var.app_name},environment=${var.environment},deployment.environment=${var.environment},source_system=hesp-ecs"
-          },
-          { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
+          }
         ] : []
       )
 
-      # Only add secrets if ADOT is enabled AND honeycomb_api_key is non-empty
-      secrets = var.enable_adot && length(trimspace(var.honeycomb_api_key)) > 0 ? [
+      # -------------------------------
+      # Secrets (DB password only)
+      # -------------------------------
+      secrets = [
         {
-          name      = "HONEYCOMB_API_KEY"
-          valueFrom = var.honeycomb_api_key
+          name      = "COMPLIANCE_DB_PASSWORD"
+          valueFrom = var.compliance_db_password_secret_arn
         }
-      ] : []
+      ]
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -84,14 +88,13 @@ resource "aws_ecs_task_definition" "this" {
     },
 
     # ---------------------------------------------------------
-    # ADOT Collector Sidecar
+    # ADOT Collector Sidecar (Honeycomb removed)
     # ---------------------------------------------------------
     var.enable_adot ? {
       name      = "adot"
       image     = var.adot_image
       essential = false
 
-      # ADOT exposes OTLP gRPC (4317), OTLP HTTP (4318), health (13133)
       portMappings = [
         { containerPort = 4317, protocol = "tcp" },
         { containerPort = 4318, protocol = "tcp" },
@@ -99,19 +102,8 @@ resource "aws_ecs_task_definition" "this" {
       ]
 
       environment = [
-        { name = "AWS_REGION", value = "us-east-1" },
-        { name = "HONEYCOMB_DATASET", value = var.honeycomb_dataset }
+        { name = "AWS_REGION", value = "us-east-1" }
       ]
-
-      # Only add secrets if honeycomb_api_key is non-empty
-      secrets = length(trimspace(var.honeycomb_api_key)) > 0 ? [
-        {
-          name      = "HONEYCOMB_API_KEY"
-          valueFrom = var.honeycomb_api_key
-        }
-      ] : []
-
-      # ADOT config baked into image at /etc/otel/config.yaml
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -121,16 +113,7 @@ resource "aws_ecs_task_definition" "this" {
           awslogs-stream-prefix = "adot"
         }
       }
-
-      #healthCheck = {
-      #  command     = ["CMD-SHELL", "curl -f http://localhost:13133/health || exit 1"]
-      #  interval    = 30
-      #  timeout     = 5
-      #  retries     = 3
-      #  startPeriod = 10
-      #}
     } : null
-
   ])
 
   tags = local.base_tags
@@ -151,7 +134,7 @@ resource "aws_ecs_service" "this" {
   network_configuration {
     subnets          = var.subnet_ids
     security_groups  = var.security_group_ids
-    assign_public_ip = true
+    assign_public_ip = false
   }
 
   load_balancer {

@@ -94,6 +94,7 @@ func NewLineage(ctx context.Context) (*Lineage, context.Context) {
 		TraceID:         traceID,
 		EventID:         uuid.NewString(),
 		IngestTimestamp: time.Now().UTC(),
+		stages:          make([]LineageStage, 0, 100),
 	}
 
 	ctx = context.WithValue(ctx, lineageKey, l)

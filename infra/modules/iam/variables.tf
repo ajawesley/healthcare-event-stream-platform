@@ -38,8 +38,7 @@ variable "golden_bucket_arn" {
   type = string
 }
 
-variable "honeycomb_api_key" {
-  type      = string
-  sensitive = true
+variable "compliance_db_password_secret_arn" {
+  type = string
 }
 

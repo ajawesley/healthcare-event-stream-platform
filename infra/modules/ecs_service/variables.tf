@@ -2,74 +2,31 @@
 # Core ECS Service Variables
 ############################################################
 
-variable "app_name" {
-  type = string
-}
+variable "app_name" { type = string }
+variable "environment" { type = string }
+variable "cluster_name" { type = string }
+variable "container_image" { type = string }
 
-variable "environment" {
-  type = string
-}
+variable "task_execution_role_arn" { type = string }
+variable "task_role_arn" { type = string }
 
-variable "cluster_name" {
-  type = string
-}
+variable "subnet_ids" { type = list(string) }
+variable "security_group_ids" { type = list(string) }
 
-variable "container_image" {
-  type = string
-}
-
-variable "task_execution_role_arn" {
-  type = string
-}
-
-variable "task_role_arn" {
-  type = string
-}
-
-variable "subnet_ids" {
-  type = list(string)
-}
-
-variable "security_group_ids" {
-  type = list(string)
-}
-
-variable "s3_bucket_name" {
-  type = string
-}
-
-variable "kms_key_arn" {
-  type = string
-}
-
+variable "s3_bucket_name" { type = string }
+variable "kms_key_arn" { type = string }
 variable "s3_prefix" {
   type    = string
   default = "events"
 }
 
-variable "log_group_name" {
-  type = string
-}
+variable "log_group_name" { type = string }
+variable "desired_count" { type = number }
+variable "target_group_arn" { type = string }
 
-variable "desired_count" {
-  type = number
-}
-
-variable "target_group_arn" {
-  type = string
-}
-
-variable "owner" {
-  type = string
-}
-
-variable "cost_center" {
-  type = string
-}
-
-variable "tags" {
-  type = map(string)
-}
+variable "owner" { type = string }
+variable "cost_center" { type = string }
+variable "tags" { type = map(string) }
 
 ############################################################
 # ADOT / OpenTelemetry
@@ -80,22 +37,18 @@ variable "enable_adot" {
   default = true
 }
 
-# Custom ADOT image (must include /etc/otel/config.yaml)
-variable "adot_image" {
-  type = string
-}
+variable "adot_image" { type = string }
 
 ############################################################
-# Observability Vendor Keys (Honeycomb)
+# Compliance DB Wiring
 ############################################################
 
-# IMPORTANT:
-# This must be a Secrets Manager ARN, not a raw string.
-variable "honeycomb_api_key" {
+variable "compliance_db_host" { type = string }
+variable "compliance_db_port" { type = number }
+variable "compliance_db_name" { type = string }
+variable "compliance_db_username" { type = string }
+
+variable "compliance_db_password_secret_arn" {
   type      = string
   sensitive = true
-}
-
-variable "honeycomb_dataset" {
-  type = string
 }

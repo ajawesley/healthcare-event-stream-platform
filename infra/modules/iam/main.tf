@@ -54,6 +54,25 @@ resource "aws_iam_role_policy" "ecs_execution_ecr" {
   })
 }
 
+resource "aws_iam_role_policy" "ecs_execution_sm" {
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        "Effect" : "Allow",
+        "Action" : [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ],
+        "Resource" : var.compliance_db_password_secret_arn
+      }
+
+    ]
+  })
+}
+
 ############################################
 # ECS Task Role
 ############################################

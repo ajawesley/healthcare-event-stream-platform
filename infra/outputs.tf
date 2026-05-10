@@ -34,4 +34,9 @@ output "glue_errors_crawler" {
   value = module.glue_crawlers.errors_crawler_name
 }
 
+output "compliance_db_endpoint" {
+  value = module.compliance_db.db_endpoint
+}
+
+
 

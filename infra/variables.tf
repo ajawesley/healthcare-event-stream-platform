@@ -59,19 +59,40 @@ variable "s3_error_path" {
   type = string
 }
 
-# --- Observability Vendor Keys (Secrets Manager ARNs) ---
-
-variable "honeycomb_api_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "honeycomb_dataset" {
-  type = string
-}
-
 # --- NEW: ACM Certificate ARN ---
 
 variable "acm_certificate_arn" {
   type = string
 }
+
+# --- RDS PostgreSQL (Compliance DB) ---
+variable "compliance_db_username" {
+  type        = string
+  description = "Username for the compliance PostgreSQL database"
+}
+
+variable "compliance_db_host" {
+  type        = string
+  description = "Hostname or endpoint of the compliance PostgreSQL database"
+}
+
+variable "compliance_db_port" {
+  type        = number
+  description = "Port number for the compliance PostgreSQL database"
+}
+
+variable "compliance_db_name" {
+  type        = string
+  description = "Name of the compliance PostgreSQL database"
+}
+
+variable "compliance_db_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the compliance PostgreSQL database"
+}
+
+variable "compliance_db_password_secret_arn" {
+  type = string
+}
+
