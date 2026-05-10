@@ -14,6 +14,10 @@ output "private_subnets" {
   value = values(aws_subnet.private)[*].id
 }
 
+output "isolated_subnets" {
+  value = values(aws_subnet.isolated)[*].id
+}
+
 output "nat_gateway_id" {
   value = aws_nat_gateway.nat.id
 }

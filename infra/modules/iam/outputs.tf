@@ -21,3 +21,7 @@ output "lambda_role_arn" {
 output "lambda_role_name" {
   value = aws_iam_role.lambda.name
 }
+
+output "cloudtrail_s3_role_arn" {
+  value = aws_iam_role.cloudtrail_s3_role.arn
+}

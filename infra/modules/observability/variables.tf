@@ -48,3 +48,8 @@ variable "access_logs_bucket_name" {
   description = "Name of the access logs bucket for CloudTrail"
   type        = string
 }
+
+variable "cloudtrail_s3_role_arn" {
+  description = "IAM role ARN used by CloudTrail to write to CloudWatch Logs"
+  type        = string
+}

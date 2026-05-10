@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/api"
+	"github.com/ajawes/hesp/internal/ingestion/compliance"
 	"github.com/ajawes/hesp/internal/ingestion/detector"
 	"github.com/ajawes/hesp/internal/ingestion/dispatcher"
 	"github.com/ajawes/hesp/internal/ingestion/models"
@@ -16,10 +17,11 @@ import (
 )
 
 type FormatRouter struct {
-	detector    detector.Detector
-	normalizer  NormalizationRouter
-	transformer TransformationRouter
-	dispatcher  dispatcher.Dispatcher
+	detector        detector.Detector
+	normalizer      NormalizationRouter
+	transformer     TransformationRouter
+	complianceGuard *compliance.Guard
+	dispatcher      dispatcher.Dispatcher
 }
 
 type Option func(*FormatRouter)
@@ -34,6 +36,10 @@ func WithNormalizationRouter(n NormalizationRouter) Option {
 
 func WithTransformationRouter(t TransformationRouter) Option {
 	return func(r *FormatRouter) { r.transformer = t }
+}
+
+func WithComplianceGuard(g *compliance.Guard) Option {
+	return func(r *FormatRouter) { r.complianceGuard = g }
 }
 
 func WithDispatcher(d dispatcher.Dispatcher) Option {
@@ -145,7 +151,36 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		zap.Any("canonical", canon),
 	)
 
-	// 6. DISPATCH (with metrics)
+	// -------------------------------------------------------------------------
+	// 6. ⭐ COMPLIANCE GUARD (NEW FORMAL STAGE)
+	// -------------------------------------------------------------------------
+	if r.complianceGuard != nil {
+		compStart := time.Now()
+		err := r.complianceGuard.Apply(ctx, canon)
+		compDuration := time.Since(compStart)
+
+		observability.ObserveStageLatency(ctx, "compliance", env.EventType, env.SourceSystem, compDuration)
+
+		if err != nil {
+			log.Error("router_compliance_error",
+				zap.String("event_id", env.EventID),
+				zap.Error(err),
+			)
+			return nil, fmt.Errorf("compliance stage failed: %w", err)
+		}
+
+		// Lineage logging for compliance
+		log.Debug("router_compliance",
+			zap.String("event_id", env.EventID),
+			zap.Bool("compliance_applied", canon.ComplianceApplied),
+			zap.Bool("compliance_flag", canon.ComplianceFlag),
+			zap.String("compliance_reason", canon.ComplianceReason),
+			zap.String("compliance_rule_type", canon.ComplianceRuleType),
+			zap.String("compliance_rule_id", canon.ComplianceRuleID),
+		)
+	}
+
+	// 7. DISPATCH (with metrics)
 	if r.dispatcher == nil {
 		return nil, fmt.Errorf("dispatcher not configured")
 	}

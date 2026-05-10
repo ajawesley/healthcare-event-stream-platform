@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"github.com/ajawes/hesp/internal/config"
 )
 
@@ -12,13 +14,23 @@ type CanonicalEvent struct {
 	Format       config.Format  `json:"format"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
 
-	// Domain-specific normalized structures (to be expanded in later slices)
+	// Domain-specific normalized structures
 	Patient     *CanonicalPatient     `json:"patient,omitempty"`
 	Encounter   *CanonicalEncounter   `json:"encounter,omitempty"`
 	Observation *CanonicalObservation `json:"observation,omitempty"`
 
 	// RawValue is optional but useful for lineage/debugging.
 	RawValue any `json:"raw_value,omitempty"`
+
+	// ---------------------------------------------------------
+	// ⭐ Compliance Metadata (NEW)
+	// ---------------------------------------------------------
+	ComplianceApplied   bool      `json:"compliance_applied"`
+	ComplianceFlag      bool      `json:"compliance_flag"`
+	ComplianceReason    string    `json:"compliance_reason,omitempty"`
+	ComplianceRuleType  string    `json:"compliance_rule_type,omitempty"`
+	ComplianceRuleID    string    `json:"compliance_rule_id,omitempty"`
+	ComplianceTimestamp time.Time `json:"compliance_timestamp,omitempty"`
 }
 
 type CanonicalPatient struct {
