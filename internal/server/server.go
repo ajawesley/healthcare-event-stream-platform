@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -133,20 +134,26 @@ func (s *Server) Start() error {
 	// -----------------------------
 	// Compliance DB Wiring
 	// -----------------------------
-	dbCfg := compliance.Config{
-		Host:     config.GetEnv("COMPLIANCE_DB_HOST", ""),
-		Port:     config.GetEnvInt("COMPLIANCE_DB_PORT", 5432),
-		User:     config.GetEnv("COMPLIANCE_DB_USER", ""),
-		Password: config.GetEnv("COMPLIANCE_DB_PASSWORD", ""),
-		Database: config.GetEnv("COMPLIANCE_DB_NAME", ""),
-	}
+	// Only initialize if NOT injected via WithComplianceClient
+	if s.complianceDB == nil {
+		rawPassword := config.GetEnv("COMPLIANCE_DB_PASSWORD", "")
+		encodedPassword := url.QueryEscape(rawPassword)
 
-	compClient, err := compliance.NewClient(context.Background(), dbCfg)
-	if err != nil {
-		log.Fatalf("failed to initialize compliance db client: %v", err)
-	}
+		dbCfg := compliance.Config{
+			Host:     config.GetEnv("COMPLIANCE_DB_HOST", ""),
+			Port:     config.GetEnvInt("COMPLIANCE_DB_PORT", 5432),
+			User:     config.GetEnv("COMPLIANCE_DB_USER", ""),
+			Password: encodedPassword,
+			Database: config.GetEnv("COMPLIANCE_DB_NAME", ""),
+		}
 
-	s.complianceDB = compClient
+		compClient, err := compliance.NewClient(context.Background(), dbCfg)
+		if err != nil {
+			log.Fatalf("failed to initialize compliance db client: %v", err)
+		}
+
+		s.complianceDB = compClient
+	}
 
 	// -----------------------------
 	// AWS + Dispatcher Wiring
