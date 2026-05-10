@@ -4,11 +4,19 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/ajawes/hesp/internal/observability"
+	"go.uber.org/zap"
 )
 
 var ErrNotFound = errors.New("no compliance rule found")
 
 func (c *client) LookupRule(ctx context.Context, entityType, entityID string) (*Rule, error) {
+	observability.Debug(ctx, "lookup rule invoked",
+		zap.String("entity_type", entityType),
+		zap.String("entity_id", entityID),
+	)
+
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -36,8 +44,17 @@ func (c *client) LookupRule(ctx context.Context, entityType, entityID string) (*
 	)
 
 	if err != nil {
+		observability.Warn(ctx, "no compliance rule found",
+			zap.String("entity_type", entityType),
+			zap.String("entity_id", entityID),
+		)
 		return nil, ErrNotFound
 	}
+
+	observability.Debug(ctx, "compliance rule retrieved",
+		zap.String("rule_id", r.ID),
+		zap.String("rule_type", r.RuleType),
+	)
 
 	return &r, nil
 }
