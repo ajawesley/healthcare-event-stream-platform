@@ -52,3 +52,19 @@ variable "compliance_db_password_secret_arn" {
   type      = string
   sensitive = true
 }
+
+############################################################
+# DynamoDB Compliance Table
+############################################################
+
+variable "dynamodb_table_name" {
+  type = string
+}
+
+############################################################
+# Redis Compliance Cache
+############################################################
+
+variable "redis_primary_endpoint" {
+  type = string
+}

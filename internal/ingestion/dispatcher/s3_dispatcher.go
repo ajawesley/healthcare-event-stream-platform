@@ -17,6 +17,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/models"
 	"github.com/ajawes/hesp/internal/observability"
+	"github.com/ajawes/hesp/internal/resilience"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -99,7 +100,7 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	// -------------------------------------------------------------------------
 	obj := map[string]any{
 		"envelope":               env,
-		"canonical_event":        event, // includes compliance metadata
+		"canonical_event":        event,
 		"raw":                    string(raw),
 		"lineage":                lineageStages,
 		"trace_id":               traceID,
@@ -133,33 +134,49 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 	)
 
 	// -------------------------------------------------------------------------
-	// Write to S3
+	// Write to S3 with resiliency
 	// -------------------------------------------------------------------------
-	s3Start := time.Now()
+	err = resilience.DoWithFallback(ctx, resilience.Dependency("s3"), func(ctx context.Context) error {
+		s3Start := time.Now()
 
-	_, err = d.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:               aws.String(d.bucket),
-		Key:                  aws.String(fullKey),
-		Body:                 bytes.NewReader(payload),
-		ContentMD5:           aws.String(md5b64),
-		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
-		SSEKMSKeyId:          aws.String(d.kmsKeyARN),
-		ContentType:          aws.String("application/json"),
-	})
+		_, putErr := d.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:               aws.String(d.bucket),
+			Key:                  aws.String(fullKey),
+			Body:                 bytes.NewReader(payload),
+			ContentMD5:           aws.String(md5b64),
+			ServerSideEncryption: types.ServerSideEncryptionAwsKms,
+			SSEKMSKeyId:          aws.String(d.kmsKeyARN),
+			ContentType:          aws.String("application/json"),
+		})
 
-	s3Duration := time.Since(s3Start)
+		s3Duration := time.Since(s3Start)
+		observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, putErr == nil)
 
-	observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, err == nil)
+		if putErr != nil {
+			observability.Error(ctx, "s3_dispatch_failed", putErr, "s3_error", "failed to write object to S3",
+				zap.String("bucket", d.bucket),
+				zap.String("key", fullKey),
+				zap.String("trace_id", traceID),
+				zap.String("span_id", spanID),
+				zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+			)
+			span.RecordError(putErr)
+			return putErr
+		}
 
-	if err != nil {
-		observability.Error(ctx, "s3_dispatch_failed", err, "s3_error", "failed to write object to S3",
+		return nil
+	}, func(ctx context.Context, fbErr error) error {
+		observability.Error(ctx, "s3_dispatch_resiliency_fallback", fbErr, "s3_fallback", "s3 dispatch failed after resiliency",
 			zap.String("bucket", d.bucket),
 			zap.String("key", fullKey),
 			zap.String("trace_id", traceID),
 			zap.String("span_id", spanID),
-			zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 		)
-		span.RecordError(err)
+		span.RecordError(fbErr)
+		return fbErr
+	})
+
+	if err != nil {
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,14 +21,23 @@ var (
 // Initialization
 // -----------------------------------------------------------------------------
 
-// NewLogger initializes the global logger with service metadata.
 func NewLogger(svc string, source string) {
 	serviceName = svc
 	sourceSystem = source
 
+	// Dynamic log level via environment variable
+	level := zap.NewAtomicLevelAt(zap.DebugLevel)
+	var err error
+	if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
+		level, err = zap.ParseAtomicLevel(lvlStr)
+		if err != nil {
+			panic("invalid LOG_LEVEL: " + err.Error())
+		}
+	}
+
 	cfg := zap.Config{
 		Encoding:         "json",
-		Level:            zap.NewAtomicLevelAt(zap.InfoLevel),
+		Level:            level,
 		OutputPaths:      []string{"stdout"},
 		ErrorOutputPaths: []string{"stderr"},
 		EncoderConfig: zapcore.EncoderConfig{
@@ -54,7 +64,6 @@ func NewLogger(svc string, source string) {
 // Context‑Aware Logger Enrichment
 // -----------------------------------------------------------------------------
 
-// WithTrace enriches logs with trace_id, span_id, event_id, produced_at, and metadata.
 func WithTrace(ctx context.Context) *zap.Logger {
 	if logger == nil {
 		panic("logger not initialized — call NewLogger() in main()")
@@ -98,10 +107,6 @@ func Error(ctx context.Context, msg string, err error, code string, reason strin
 	)
 	WithTrace(ctx).Error(msg, all...)
 }
-
-// -----------------------------------------------------------------------------
-// Flush on shutdown
-// -----------------------------------------------------------------------------
 
 func Sync() {
 	if logger != nil {

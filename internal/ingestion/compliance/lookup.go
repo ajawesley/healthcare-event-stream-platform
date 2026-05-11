@@ -3,41 +3,85 @@ package compliance
 import (
 	"context"
 	"errors"
-	"time"
+
+	"github.com/ajawes/hesp/internal/observability"
+	"github.com/ajawes/hesp/internal/resilience"
+	"go.uber.org/zap"
 )
 
 var ErrNotFound = errors.New("no compliance rule found")
 
 func (c *client) LookupRule(ctx context.Context, entityType, entityID string) (*Rule, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	row := c.pool.QueryRow(ctx, `
-        SELECT id, entity_type, entity_id, rule_type, compliance_flag, reason_code,
-               source_format, event_type, created_at, updated_at
-        FROM compliance_rules
-        WHERE entity_type = $1 AND entity_id = $2
-        ORDER BY updated_at DESC
-        LIMIT 1
-    `, entityType, entityID)
-
-	var r Rule
-	err := row.Scan(
-		&r.ID,
-		&r.EntityType,
-		&r.EntityID,
-		&r.RuleType,
-		&r.ComplianceFlag,
-		&r.ReasonCode,
-		&r.SourceFormat,
-		&r.EventType,
-		&r.CreatedAt,
-		&r.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, ErrNotFound
+	// -------------------------------------------------------------------------
+	// 1. Redis cache (best-effort, no resilience)
+	// -------------------------------------------------------------------------
+	if c.cache != nil {
+		if r, ok := c.cache.Get(ctx, entityType, entityID); ok {
+			observability.Info(ctx, "rule returned from redis cache",
+				zap.String("entity_type", entityType),
+				zap.String("entity_id", entityID),
+				zap.String("rule_id", r.ID),
+			)
+			return r, nil
+		}
 	}
 
-	return &r, nil
+	// -------------------------------------------------------------------------
+	// 2. Postgres (primary) — wrapped in resilience
+	// -------------------------------------------------------------------------
+	var pgRule *Rule
+	err := resilience.DoWithFallback(ctx, resilience.Dependency("postgres"), func(ctx context.Context) error {
+		r, err := c.pg.Lookup(ctx, entityType, entityID)
+		if err != nil {
+			return err
+		}
+		pgRule = r
+		return nil
+	}, func(ctx context.Context, err error) error {
+		observability.Warn(ctx, "postgres lookup failed",
+			zap.String("entity_type", entityType),
+			zap.String("entity_id", entityID),
+			zap.Error(err),
+		)
+		return err
+	})
+
+	if err == nil && pgRule != nil {
+		if c.cache != nil {
+			// async, non-blocking cache write
+			go c.cache.Set(context.Background(), entityType, entityID, pgRule)
+		}
+		return pgRule, nil
+	}
+
+	// -------------------------------------------------------------------------
+	// 3. DynamoDB (secondary) — wrapped in resilience
+	// -------------------------------------------------------------------------
+	var dynRule *Rule
+	err = resilience.Do(ctx, resilience.Dependency("dynamodb"), func(ctx context.Context) error {
+		r, err := c.dyn.Lookup(ctx, entityType, entityID)
+		if err != nil {
+			return err
+		}
+		dynRule = r
+		return nil
+	})
+
+	if err == nil && dynRule != nil {
+		if c.cache != nil {
+			// async, non-blocking cache write
+			go c.cache.Set(context.Background(), entityType, entityID, dynRule)
+		}
+		return dynRule, nil
+	}
+
+	// -------------------------------------------------------------------------
+	// 4. Fallback — no rule found anywhere
+	// -------------------------------------------------------------------------
+	observability.Warn(ctx, "no rule found in any store, fallback applied",
+		zap.String("entity_type", entityType),
+		zap.String("entity_id", entityID),
+	)
+
+	return nil, ErrNotFound
 }

@@ -28,7 +28,6 @@ func init() {
 // ------------------------------------------------------------
 // Fake Detector
 // ------------------------------------------------------------
-
 type fakeDetector struct {
 	format config.Format
 }
@@ -40,7 +39,6 @@ func (f fakeDetector) Detect(_ []byte) config.Format {
 // ------------------------------------------------------------
 // Fake Normalizer (ctx-aware)
 // ------------------------------------------------------------
-
 type fakeNormalizer struct {
 	out *models.NormalizedEvent
 	err error
@@ -65,7 +63,6 @@ func (r fakeNormalizationRouter) NormalizerFor(_ config.Format) (normalizer.Norm
 // ------------------------------------------------------------
 // Fake Transformer (ctx-aware)
 // ------------------------------------------------------------
-
 type fakeTransformer struct {
 	out *models.CanonicalEvent
 	err error
@@ -90,7 +87,6 @@ func (r fakeTransformationRouter) TransformerFor(_ config.Format) (transformer.T
 // ------------------------------------------------------------
 // Fake Dispatcher (ctx-aware)
 // ------------------------------------------------------------
-
 type fakeDispatcher struct {
 	called bool
 	err    error
@@ -102,9 +98,19 @@ func (d *fakeDispatcher) Dispatch(_ context.Context, _ *models.CanonicalEvent, _
 }
 
 // ------------------------------------------------------------
+// ⭐ NEW: Fake Compliance Guard
+// ------------------------------------------------------------
+type mockComplianceGuard struct {
+	err error
+}
+
+func (m *mockComplianceGuard) Apply(_ context.Context, _ *models.CanonicalEvent) error {
+	return m.err
+}
+
+// ------------------------------------------------------------
 // Tests
 // ------------------------------------------------------------
-
 func TestFormatRouter(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -158,6 +164,7 @@ func TestFormatRouter(t *testing.T) {
 					},
 					err: tt.xfmLookupErr,
 				}),
+				WithComplianceGuard(&mockComplianceGuard{}), // ⭐ REQUIRED
 				WithDispatcher(fd),
 			)
 
@@ -167,7 +174,6 @@ func TestFormatRouter(t *testing.T) {
 				SourceSystem: "unit",
 			}
 
-			// ⭐ Updated: Route now requires ctx
 			_, err := r.Route(context.Background(), []byte("raw"), env)
 
 			if tt.expectErr && err == nil {
