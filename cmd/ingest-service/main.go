@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ajawes/hesp/internal/server"
+	"github.com/ajawes/hesp/internal/ingestion/server"
 )
 
 func main() {

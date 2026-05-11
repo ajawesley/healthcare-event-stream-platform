@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -20,7 +21,7 @@ type FormatRouter struct {
 	detector        detector.Detector
 	normalizer      NormalizationRouter
 	transformer     TransformationRouter
-	complianceGuard *compliance.Guard
+	complianceGuard compliance.ComplianceGuard
 	dispatcher      dispatcher.Dispatcher
 }
 
@@ -38,7 +39,7 @@ func WithTransformationRouter(t TransformationRouter) Option {
 	return func(r *FormatRouter) { r.transformer = t }
 }
 
-func WithComplianceGuard(g *compliance.Guard) Option {
+func WithComplianceGuard(g compliance.ComplianceGuard) Option {
 	return func(r *FormatRouter) { r.complianceGuard = g }
 }
 
@@ -52,6 +53,22 @@ func NewFormatRouter(opts ...Option) *FormatRouter {
 		opt(r)
 	}
 	return r
+}
+
+func (r *FormatRouter) SetDetector(d detector.Detector) {
+	r.detector = d
+}
+
+func (r *FormatRouter) SetNormalizer(n NormalizationRouter) {
+	r.normalizer = n
+}
+
+func (r *FormatRouter) SetTransformer(t TransformationRouter) {
+	r.transformer = t
+}
+
+func (r *FormatRouter) SetComplianceGuard(g compliance.ComplianceGuard) {
+	r.complianceGuard = g
 }
 
 func (r *FormatRouter) SetDispatcher(d dispatcher.Dispatcher) {
@@ -84,6 +101,13 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 	)
 
 	// 1. DETECT FORMAT
+	if r.detector == nil {
+		log.Error("detector_undefined_error",
+			zap.String("event_id", env.EventID),
+		)
+		observability.IncrementLineageFailure(ctx, "detect", "detector_not_configured")
+		panic(errors.New("no detector configured"))
+	}
 	format := r.detector.Detect(sanitized)
 
 	log.Debug("router_detect",
@@ -92,12 +116,21 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 	)
 
 	// 2. LOOKUP NORMALIZER
+	if r.normalizer == nil {
+		log.Error("normalizer_undefined_error",
+			zap.String("event_id", env.EventID),
+		)
+		observability.IncrementLineageFailure(ctx, "normalize", "normalizer_not_configured")
+		panic(errors.New("no normalizer configured"))
+	}
+
 	normer, err := r.normalizer.NormalizerFor(format)
 	if err != nil {
 		log.Error("router_normalizer_lookup_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "normalize", "normalizer_lookup_failed")
 		return nil, fmt.Errorf("normalizer lookup failed: %w", err)
 	}
 
@@ -113,6 +146,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "normalize", "normalization_failed")
 		return nil, fmt.Errorf("normalization failed: %w", err)
 	}
 
@@ -122,12 +156,21 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 	)
 
 	// 4. LOOKUP TRANSFORMER
+	if r.transformer == nil {
+		log.Error("transformer_undefined_error",
+			zap.String("event_id", env.EventID),
+		)
+		observability.IncrementLineageFailure(ctx, "transform", "transformer_not_configured")
+		panic(errors.New("no transformer configured"))
+	}
+
 	xform, err := r.transformer.TransformerFor(format)
 	if err != nil {
 		log.Error("router_transformer_lookup_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "transform", "transformer_lookup_failed")
 		return nil, fmt.Errorf("transformer lookup failed: %w", err)
 	}
 
@@ -143,6 +186,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "transform", "transformation_failed")
 		return nil, fmt.Errorf("transformation failed: %w", err)
 	}
 
@@ -154,6 +198,14 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 	// -------------------------------------------------------------------------
 	// 6. ⭐ COMPLIANCE GUARD (NEW FORMAL STAGE)
 	// -------------------------------------------------------------------------
+	if r.complianceGuard == nil {
+		log.Error("compliance_guard_undefined_error",
+			zap.String("event_id", env.EventID),
+		)
+		observability.IncrementLineageFailure(ctx, "compliance", "compliance_guard_not_configured")
+		panic(errors.New("no compliance guard configured"))
+	}
+
 	if r.complianceGuard != nil {
 		compStart := time.Now()
 		err := r.complianceGuard.Apply(ctx, canon)
@@ -166,6 +218,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 				zap.String("event_id", env.EventID),
 				zap.Error(err),
 			)
+			observability.IncrementLineageFailure(ctx, "compliance", "compliance_stage_failed")
 			return nil, fmt.Errorf("compliance stage failed: %w", err)
 		}
 
@@ -182,6 +235,15 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 
 	// 7. DISPATCH (with metrics)
 	if r.dispatcher == nil {
+		log.Error("dispatcher_undefined_error",
+			zap.String("event_id", env.EventID),
+		)
+		observability.IncrementLineageFailure(ctx, "dispatch", "dispatcher_not_configured")
+		panic(errors.New("no dispatcher configured"))
+	}
+
+	if r.dispatcher == nil {
+		observability.IncrementLineageFailure(ctx, "dispatch", "dispatcher_not_configured")
 		return nil, fmt.Errorf("dispatcher not configured")
 	}
 
@@ -196,12 +258,16 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "dispatch", "dispatch_failed")
 		return nil, fmt.Errorf("dispatch failed: %w", err)
 	}
 
 	log.Debug("router_dispatch_success",
 		zap.String("event_id", env.EventID),
 	)
+
+	// Successful end-to-end lineage event
+	observability.IncrementLineageEvent(ctx, "dispatch", env.SourceSystem, env.EventType)
 
 	return canon, nil
 }

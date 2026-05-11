@@ -51,7 +51,17 @@ resource "aws_ecs_task_definition" "this" {
           { name = "COMPLIANCE_DB_HOST", value = var.compliance_db_host },
           { name = "COMPLIANCE_DB_PORT", value = tostring(var.compliance_db_port) },
           { name = "COMPLIANCE_DB_NAME", value = var.compliance_db_name },
-          { name = "COMPLIANCE_DB_USER", value = var.compliance_db_username }
+          { name = "COMPLIANCE_DB_USER", value = var.compliance_db_username },
+
+          # -------------------------------
+          # DynamoDB Compliance Table
+          # -------------------------------
+          { name = "DYNAMO_TABLE", value = var.dynamodb_table_name },
+
+          # -------------------------------
+          # Redis Compliance Cache
+          # -------------------------------
+          { name = "REDIS_ADDR", value = "${var.redis_primary_endpoint}:6379" }
         ],
         var.enable_adot ? [
           { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "localhost:4318" },
@@ -67,9 +77,6 @@ resource "aws_ecs_task_definition" "this" {
         ] : []
       )
 
-      # -------------------------------
-      # Secrets (DB password only)
-      # -------------------------------
       secrets = [
         {
           name      = "COMPLIANCE_DB_PASSWORD"
@@ -88,7 +95,7 @@ resource "aws_ecs_task_definition" "this" {
     },
 
     # ---------------------------------------------------------
-    # ADOT Collector Sidecar (Honeycomb removed)
+    # ADOT Collector Sidecar
     # ---------------------------------------------------------
     var.enable_adot ? {
       name      = "adot"

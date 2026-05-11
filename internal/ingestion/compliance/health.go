@@ -14,7 +14,7 @@ func (c *client) Ready(ctx context.Context) error {
 	defer cancel()
 
 	var one int
-	err := c.pool.QueryRow(ctx, "SELECT 1").Scan(&one)
+	err := c.pg.pool.QueryRow(ctx, "SELECT 1").Scan(&one)
 	if err != nil {
 		observability.Error(ctx, "readiness check failed", err, "DB_READY_FAIL", "query_failed")
 		return err
@@ -25,7 +25,7 @@ func (c *client) Ready(ctx context.Context) error {
 }
 
 func (c *client) Live() error {
-	if c.pool == nil {
+	if c.pg.pool == nil {
 		observability.Warn(context.Background(), "liveness check failed: nil pool")
 		return ErrNotFound
 	}
