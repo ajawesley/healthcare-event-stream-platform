@@ -59,6 +59,7 @@ module "ecs_service" {
   compliance_db_username            = var.compliance_db_username
   compliance_db_password_secret_arn = var.compliance_db_password_secret_arn
   container_image                   = var.container_image
+  dynamodb_table_name               = module.compliance_dynamodb.table_name
   task_execution_role_arn           = module.iam.execution_role_arn
   task_role_arn                     = module.iam.task_role_arn
   subnet_ids                        = module.vpc.private_subnets
@@ -68,6 +69,7 @@ module "ecs_service" {
   s3_prefix                         = "events"
   log_group_name                    = aws_cloudwatch_log_group.ecs.name
   desired_count                     = var.desired_count
+  redis_primary_endpoint            = module.compliance_redis.primary_endpoint
   target_group_arn                  = module.alb.target_group_arn
   owner                             = var.owner
   cost_center                       = var.cost_center

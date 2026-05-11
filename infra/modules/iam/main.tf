@@ -61,14 +61,13 @@ resource "aws_iam_role_policy" "ecs_execution_sm" {
     Version = "2012-10-17"
     Statement = [
       {
-        "Effect" : "Allow",
-        "Action" : [
+        Effect = "Allow",
+        Action = [
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ],
-        "Resource" : var.compliance_db_password_secret_arn
+        Resource = var.compliance_db_password_secret_arn
       }
-
     ]
   })
 }
@@ -145,7 +144,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_policy_attach" {
 }
 
 ############################################
-# Glue Job Role  ⭐ UPDATED FOR XRAY
+# Glue Job Role
 ############################################
 
 resource "aws_iam_role" "glue" {
@@ -233,7 +232,7 @@ resource "aws_iam_policy" "glue_policy" {
         Resource = "arn:aws:logs:*:*:*"
       },
 
-      # ⭐ X-Ray permissions for Glue (NEW)
+      # X-Ray permissions
       {
         Effect = "Allow"
         Action = [
@@ -277,10 +276,10 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-
 ############################################
 # Terraform Role for Lambda Layer Access
 ############################################
+
 resource "aws_iam_policy" "terraform_lambda_layer_access" {
   name = "terraform-lambda-layer-access"
 
@@ -302,7 +301,6 @@ resource "aws_iam_user_policy_attachment" "attach_layer_access" {
   user       = "terraform"
   policy_arn = aws_iam_policy.terraform_lambda_layer_access.arn
 }
-
 
 ############################################
 # CloudTrail S3 Object-Level Logging Role
@@ -342,4 +340,34 @@ resource "aws_iam_role_policy" "cloudtrail_s3_policy" {
   })
 }
 
+############################################
+# DynamoDB Compliance Policy (FIXED)
+############################################
 
+data "aws_iam_policy_document" "dynamodb_compliance" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:DescribeTable"
+    ]
+
+    resources = [
+      var.dynamodb_table_arn
+    ]
+  }
+}
+
+resource "aws_iam_policy" "dynamodb_compliance" {
+  name   = "${var.app_name}-${var.environment}-dynamodb-compliance-read"
+  policy = data.aws_iam_policy_document.dynamodb_compliance.json
+
+  tags = local.base_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_dynamodb_attach" {
+  role       = aws_iam_role.ecs_task.name
+  policy_arn = aws_iam_policy.dynamodb_compliance.arn
+}

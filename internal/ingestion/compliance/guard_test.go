@@ -3,9 +3,9 @@ package compliance
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/ajawes/hesp/internal/ingestion/models"
+	"github.com/ajawes/hesp/internal/observability"
 )
 
 func TestGuardApply(t *testing.T) {
@@ -33,10 +33,10 @@ func TestGuardApply(t *testing.T) {
 			mockRule:   nil,
 			mockErr:    ErrNotFound,
 			wantFlag:   false,
-			wantReason: "NO_RULE",
+			wantReason: "FALLBACK_DEFAULT",
 		},
 	}
-
+	observability.NewLogger("test", "test")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
@@ -46,7 +46,7 @@ func TestGuardApply(t *testing.T) {
 				},
 			}
 
-			guard := NewGuard(mock, NewCircuitBreaker(5, time.Second))
+			guard := NewGuard(mock)
 
 			evt := &models.CanonicalEvent{
 				Patient: &models.CanonicalPatient{ID: "123"},

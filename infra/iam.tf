@@ -12,6 +12,8 @@ module "iam" {
 
   compliance_db_password_secret_arn = var.compliance_db_password_secret_arn
 
+  dynamodb_table_arn = module.compliance_dynamodb.table_arn
+
   raw_bucket_arn    = aws_s3_bucket.this.arn
   script_bucket_arn = "arn:aws:s3:::${var.script_bucket}"
   golden_bucket_arn = "arn:aws:s3:::${var.app_name}-${var.environment}-golden-events-001"

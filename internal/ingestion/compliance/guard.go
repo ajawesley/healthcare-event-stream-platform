@@ -10,32 +10,40 @@ import (
 	"go.uber.org/zap"
 )
 
-type Guard struct {
-	client  ClientAPI
-	breaker *CircuitBreaker
+type ComplianceGuard interface {
+	Apply(ctx context.Context, evt *models.CanonicalEvent) error
 }
 
-func NewGuard(client ClientAPI, breaker *CircuitBreaker) *Guard {
-	return &Guard{
-		client:  client,
-		breaker: breaker,
-	}
+type guard struct {
+	client ClientAPI // unified client: Redis → Postgres → DynamoDB → fallback
 }
 
-func (g *Guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
+func NewGuard(client ClientAPI) ComplianceGuard {
+	return &guard{client: client}
+}
+
+func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	stageStart := time.Now()
 	observability.Debug(ctx, "compliance guard invoked")
 
+	// -------------------------------------------------------------------------
+	// Validate event
+	// -------------------------------------------------------------------------
 	if evt == nil {
 		observability.Error(ctx, "nil canonical event", fmt.Errorf("nil event"), "INVALID_EVENT", "nil")
+		observability.IncrementComplianceError(ctx, "INVALID_EVENT_NIL")
 		return fmt.Errorf("nil canonical event")
 	}
 
 	if evt.Patient == nil && evt.Encounter == nil && evt.Observation == nil {
 		observability.Error(ctx, "missing domain identifiers", fmt.Errorf("missing identifiers"), "INVALID_EVENT", "missing_identifiers")
+		observability.IncrementComplianceError(ctx, "INVALID_EVENT_MISSING_IDENTIFIERS")
 		return fmt.Errorf("canonical event missing domain identifiers")
 	}
 
+	// -------------------------------------------------------------------------
+	// Derive entity identifiers
+	// -------------------------------------------------------------------------
 	entityType, entityID := deriveEntity(evt)
 	observability.Debug(ctx, "derived entity identifiers",
 		zap.String("entity_type", entityType),
@@ -44,43 +52,42 @@ func (g *Guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 
 	if entityType == "" || entityID == "" {
 		observability.Error(ctx, "cannot derive entity identifiers", fmt.Errorf("derive failed"), "INVALID_EVENT", "derive_failed")
+		observability.IncrementComplianceError(ctx, "INVALID_EVENT_DERIVE_FAILED")
 		return fmt.Errorf("cannot derive entity identifiers for compliance")
 	}
 
+	// Mark compliance stage start
 	evt.ComplianceApplied = true
 	evt.ComplianceTimestamp = time.Now().UTC()
 
-	// Circuit breaker check
-	if err := g.breaker.Allow(); err != nil {
-		observability.Warn(ctx, "circuit breaker open",
-			zap.String("entity_type", entityType),
-			zap.String("entity_id", entityID),
-		)
-
-		evt.ComplianceFlag = false
-		evt.ComplianceReason = "CIRCUIT_OPEN"
-		markLineage(ctx, stageStart)
-		return nil
-	}
-
-	// Lookup rule
+	// -------------------------------------------------------------------------
+	// Unified lookup (Redis → Postgres → DynamoDB → fallback)
+	// -------------------------------------------------------------------------
+	lookupStart := time.Now()
 	rule, err := g.client.LookupRule(ctx, entityType, entityID)
+	observability.ObserveComplianceLookupLatency(ctx, "unified", lookupStart)
+
 	if err != nil {
-		observability.Warn(ctx, "no compliance rule found",
+		// No rule found anywhere → fallback
+		observability.Warn(ctx, "no compliance rule found (fallback applied)",
 			zap.String("entity_type", entityType),
 			zap.String("entity_id", entityID),
+			zap.Error(err),
 		)
 
-		g.breaker.Failure()
+		// Metrics: rule miss + fallback
+		observability.IncrementComplianceRuleMiss(ctx, entityType, "")
+		observability.IncrementComplianceFallback(ctx, entityType, "")
+
 		evt.ComplianceFlag = false
-		evt.ComplianceReason = "NO_RULE"
+		evt.ComplianceReason = "FALLBACK_DEFAULT"
 		markLineage(ctx, stageStart)
 		return nil
 	}
 
-	// Success
-	g.breaker.Success()
-
+	// -------------------------------------------------------------------------
+	// Success — apply rule
+	// -------------------------------------------------------------------------
 	observability.Info(ctx, "compliance rule applied",
 		zap.String("rule_id", rule.ID),
 		zap.String("rule_type", rule.RuleType),
@@ -88,13 +95,19 @@ func (g *Guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 		zap.String("reason", rule.ReasonCode),
 	)
 
+	// Metrics: rule hit
+	observability.IncrementComplianceRuleHit(ctx, rule.ID, rule.RuleType, rule.ComplianceFlag, "")
+
+	applyRuleToEvent(evt, rule)
+	markLineage(ctx, stageStart)
+	return nil
+}
+
+func applyRuleToEvent(evt *models.CanonicalEvent, rule *Rule) {
 	evt.ComplianceFlag = rule.ComplianceFlag
 	evt.ComplianceReason = rule.ReasonCode
 	evt.ComplianceRuleType = rule.RuleType
 	evt.ComplianceRuleID = rule.ID
-
-	markLineage(ctx, stageStart)
-	return nil
 }
 
 func markLineage(ctx context.Context, start time.Time) {
