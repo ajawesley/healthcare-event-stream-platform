@@ -1,0 +1,59 @@
+# HESP Landing Zone
+
+This repository implements a full AWS multi-account Landing Zone aligned with:
+
+- AWS Control Tower
+- AWS Landing Zone Accelerator (LZA)
+- Aetna enterprise cloud governance patterns
+- NIST 800-53, CIS, and AWS Well-Architected
+
+## Accounts
+
+- **Org / Management Account**
+  - SCPs
+  - Permission Boundaries
+  - OIDC Federation
+  - Organization Config Aggregator
+
+- **Logging Account**
+  - Central Log Archive (S3 + KMS)
+  - Organization CloudTrail
+  - Organization Config Aggregator
+
+- **Security Services Account**
+  - GuardDuty Delegated Admin
+  - Security Hub Delegated Admin
+  - IAM Access Analyzer (Organization)
+
+- **Workloads Account**
+  - Account-level CloudTrail
+  - Account-level Config
+  - GuardDuty Member
+  - Security Hub Member
+  - Access Analyzer
+  - Baseline VPC (10.1.0.0/16)
+
+## Deployment Order
+
+1. `org`
+2. `logging`
+3. `security-services`
+4. `vpc-baseline`
+5. `workloads`
+
+## Terragrunt
+
+Terragrunt wrappers provide:
+
+- Remote state
+- DRY variable inheritance
+- Multi-account orchestration
+- Safe parallelism
+
+## GitHub Actions
+
+GitHub Actions deploys:
+
+- Landing Zone (manual)
+- Application Platform (automatic)
+- OIDC-based AWS access
