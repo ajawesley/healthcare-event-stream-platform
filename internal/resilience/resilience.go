@@ -12,23 +12,24 @@ type Dependency string
 
 type Executor func(ctx context.Context) error
 type Fallback func(ctx context.Context, err error) error
+type RetryPolicy func(err error) bool
 
-func Do(ctx context.Context, dep Dependency, exec Executor) error {
-	return doInternal(ctx, dep, exec, nil)
+func Do(ctx context.Context, dep Dependency, exec Executor, retry RetryPolicy) error {
+	return doInternal(ctx, dep, exec, nil, retry)
 }
 
-func DoWithFallback(ctx context.Context, dep Dependency, exec Executor, fb Fallback) error {
-	return doInternal(ctx, dep, exec, fb)
+func DoWithFallback(ctx context.Context, dep Dependency, exec Executor, fb Fallback, retry RetryPolicy) error {
+	return doInternal(ctx, dep, exec, fb, retry)
 }
 
-func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback) error {
+func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback, retry RetryPolicy) error {
 	start := time.Now()
 
-	// Hard timeout wrapper for the entire dependency call
+	// Hard timeout for entire dependency call
 	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	// Circuit breaker check
+	// Circuit breaker
 	if !allow(dep) {
 		observability.Warn(ctx, "circuit breaker open",
 			zap.String("dependency", string(dep)),
@@ -39,11 +40,15 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 		return ErrCircuitOpen
 	}
 
+	// Default retry policy = retry everything
+	if retry == nil {
+		retry = func(err error) bool { return true }
+	}
+
 	var err error
 
 	for attempt := 0; attempt < 3; attempt++ {
 
-		// Retry logging
 		if attempt > 0 {
 			observability.Warn(ctx, "retrying dependency call",
 				zap.String("dependency", string(dep)),
@@ -52,7 +57,7 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 			sleepWithBackoff(attempt)
 		}
 
-		// Bulkhead guard
+		// Bulkhead
 		if !acquireBulkhead(dep) {
 			observability.Warn(ctx, "bulkhead full",
 				zap.String("dependency", string(dep)),
@@ -63,27 +68,24 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 			return ErrBulkheadFull
 		}
 
-		// Execute dependency in a goroutine to enforce timeout
+		// Execute dependency in goroutine
 		resultCh := make(chan error, 1)
-
 		go func() {
 			resultCh <- exec(ctx)
 		}()
 
 		select {
 		case err = <-resultCh:
-			// Dependency returned
 			releaseBulkhead(dep)
 
 			if err == nil {
 				recordSuccess(dep)
 
-				// Correct observability signature
 				observability.ObserveDependencyLatency(
 					ctx,
-					string(dep), // depType
-					"execute",   // operation
-					string(dep), // target
+					string(dep),
+					"execute",
+					string(dep),
 					start,
 				)
 
@@ -95,7 +97,6 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 				return nil
 			}
 
-			// Dependency returned an error
 			recordFailure(dep)
 
 			observability.Warn(ctx, "dependency call failed",
@@ -104,13 +105,12 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 				zap.Int("attempt", attempt),
 			)
 
-			if !isRetryable(err) {
-				// Non-retryable error → break immediately
+			// Caller decides retryability (default = true)
+			if !retry(err) {
 				attempt = 3
 			}
 
 		case <-ctx.Done():
-			// Timeout or cancellation
 			releaseBulkhead(dep)
 			recordFailure(dep)
 
@@ -122,9 +122,9 @@ func doInternal(ctx context.Context, dep Dependency, exec Executor, fb Fallback)
 				zap.Int("attempt", attempt),
 			)
 
-			// Timeout is retryable for first 2 attempts
-			if attempt == 2 {
-				break
+			// Timeout retryability also controlled by caller (default = true)
+			if !retry(err) {
+				attempt = 3
 			}
 		}
 	}
