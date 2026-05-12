@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowCoreWorkloadActions",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunTask",
+        "ecs:DescribeTasks",
+        "ecs:DescribeServices",
+        "ecs:ListTasks",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "secretsmanager:GetSecretValue",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket",
+        "dynamodb:PutItem",
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "rds-db:connect",
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyIamAdministration",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyPrivilegeEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

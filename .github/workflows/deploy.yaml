@@ -1,0 +1,118 @@
+name: HESP Platform Deployment
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: hesp
+
+jobs:
+
+  ############################################
+  # Landing Zone Phase 1 (Org Account)
+  ############################################
+  landing-zone-org:
+    name: Landing Zone Phase 1 (Org)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (Org Account)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ORG_ACCOUNT_ID>:role/github-oidc-org
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Initialize Org Terraform
+        run: make lz-org-init
+
+      - name: Apply Org Terraform
+        run: make lz-org-apply
+
+  ############################################
+  # Landing Zone Phase 2 (Workloads Account)
+  ############################################
+  landing-zone-workloads:
+    name: Landing Zone Phase 2 (Workloads)
+    runs-on: ubuntu-latest
+    needs: landing-zone-org
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (Workloads Account)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<WORKLOADS_ACCOUNT_ID>:role/github-oidc-workloads
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Initialize Workloads Terraform
+        run: make lz-workloads-init
+
+      - name: Apply Workloads Terraform
+        run: make lz-workloads-apply
+
+  ############################################
+  # Application Platform Deployment
+  ############################################
+  deploy-app:
+    name: Deploy Application Platform
+    runs-on: ubuntu-latest
+    needs: [ landing-zone-workloads ]
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (Workloads Account)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<WORKLOADS_ACCOUNT_ID>:role/github-oidc-${{ env.ENV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Docker Build + Push
+        run: make docker-push ENV=${{ env.ENV }}
+
+      - name: Build Lambda
+        run: make lambda-build
+
+      - name: Terraform Init
+        run: make tf-init ENV=${{ env.ENV }}
+
+      - name: Terraform Plan
+        run: make tf-plan ENV=${{ env.ENV }}
+
+      - name: Terraform Apply
+        run: make tf-apply ENV=${{ env.ENV }}
+
+      - name: ECS Restart
+        run: make ecs-restart ENV=${{ env.ENV }}
+
+      - name: Cleanup Lambda Artifacts
+        run: make lambda-clean
