@@ -13,15 +13,6 @@ terraform {
   }
 }
 
-# Workload account assumes the ORG-LEVEL GitHub OIDC deploy role
-provider "aws" {
-  region = var.aws_region
-
-  assume_role {
-    role_arn = var.github_oidc_role_arn
-  }
-}
-
 ############################################
 # Locals
 ############################################
