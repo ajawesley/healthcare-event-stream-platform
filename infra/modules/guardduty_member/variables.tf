@@ -1,0 +1,12 @@
+variable "name_prefix" {
+  type = string
+}
+
+variable "master_account_id" {
+  type = string
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

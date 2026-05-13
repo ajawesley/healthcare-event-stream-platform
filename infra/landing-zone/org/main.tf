@@ -6,6 +6,10 @@ provider "aws" {
   region = var.aws_region
 }
 
+############################################
+# Locals
+############################################
+
 locals {
   tags = merge(
     {
@@ -26,12 +30,16 @@ module "permission_boundaries" {
 }
 
 ############################################
-# OIDC Provider + Roles
+# OIDC Provider + GitHub Deploy Role
 ############################################
 
 module "oidc" {
-  source = "./oidc"
-
+  source       = "./oidc"
+  owner        = var.owner
+  org_name     = var.org_name
+  github_owner = var.github_owner
+  github_repo  = var.github_repo
+  tags         = local.tags
 }
 
 ############################################

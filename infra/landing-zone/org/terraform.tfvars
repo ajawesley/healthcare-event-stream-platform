@@ -1,0 +1,5 @@
+aws_region   = "us-east-1"
+github_owner = "ajawe"
+github_repo  = "healthcare-event-stream-platform"
+org_name     = "acme"
+owner        = "ajawe"

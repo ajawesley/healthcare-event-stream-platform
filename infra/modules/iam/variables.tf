@@ -38,6 +38,11 @@ variable "golden_bucket_arn" {
   type = string
 }
 
+variable "log_archive_bucket_arn" {
+  description = "ARN of the CloudTrail/Config log archive bucket"
+  type        = string
+}
+
 variable "compliance_db_password_secret_arn" {
   type = string
 }
@@ -45,4 +50,3 @@ variable "compliance_db_password_secret_arn" {
 variable "dynamodb_table_arn" {
   type = string
 }
-
