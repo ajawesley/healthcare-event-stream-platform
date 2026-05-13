@@ -1,213 +1,189 @@
-############################################
-# VPC
-############################################
+data "aws_availability_zones" "this" {
+  state = "available"
+}
+
+locals {
+  azs = slice(data.aws_availability_zones.this.names, 0, var.az_count)
+}
 
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
-  enable_dns_hostnames = true
   enable_dns_support   = true
+  enable_dns_hostnames = true
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-vpc"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-vpc"
+    }
+  )
 }
 
-############################################
-# Internet Gateway
-############################################
-
-resource "aws_internet_gateway" "igw" {
+resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-igw"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-igw"
+    }
+  )
 }
 
-############################################
-# Public Subnets (3 AZs)
-############################################
-
+# Public subnets (e.g., 10.10.0.0/24, 10.10.1.0/24, 10.10.2.0/24)
 resource "aws_subnet" "public" {
-  for_each = var.azs
+  count = var.az_count
 
   vpc_id                  = aws_vpc.this.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, each.value.index)
-  availability_zone       = each.key
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
+  availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-public-${each.key}"
-    Tier = "public"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-public-${count.index + 1}"
+      Tier = "public"
+    }
+  )
 }
 
-############################################
-# Private Subnets (3 AZs)
-############################################
-
+# Private subnets (e.g., 10.10.10.0/24, 10.10.11.0/24, 10.10.12.0/24)
 resource "aws_subnet" "private" {
-  for_each = var.azs
+  count = var.az_count
 
   vpc_id            = aws_vpc.this.id
-  cidr_block        = cidrsubnet(var.vpc_cidr, 8, each.value.index + 10)
-  availability_zone = each.key
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, 10 + count.index)
+  availability_zone = local.azs[count.index]
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-private-${each.key}"
-    Tier = "private"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-private-${count.index + 1}"
+      Tier = "private"
+    }
+  )
 }
 
-############################################
-# Isolated Subnets (3 AZs)
-############################################
-
+# Isolated subnets (e.g., 10.10.20.0/24, 10.10.21.0/24, 10.10.22.0/24)
 resource "aws_subnet" "isolated" {
-  for_each = var.azs
+  count = var.az_count
 
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, each.value.index + 20)
-  availability_zone       = each.key
-  map_public_ip_on_launch = false
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, 20 + count.index)
+  availability_zone = local.azs[count.index]
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-isolated-${each.key}"
-    Tier = "isolated"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-isolated-${count.index + 1}"
+      Tier = "isolated"
+    }
+  )
 }
 
-############################################
-# NAT Gateway (single‑AZ)
-############################################
-
+# EIPs for NAT Gateways (one per AZ)
 resource "aws_eip" "nat" {
+  count = var.az_count
+
   domain = "vpc"
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-nat-eip"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-nat-eip-${count.index + 1}"
+    }
+  )
 }
 
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[var.primary_az].id
+# NAT Gateways in public subnets
+resource "aws_nat_gateway" "this" {
+  count = var.az_count
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-nat"
-  })
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-nat-${count.index + 1}"
+    }
+  )
+
+  depends_on = [aws_internet_gateway.this]
 }
 
-############################################
-# Public Route Table
-############################################
-
+# Public route table (shared)
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-public-rt"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-public-rt"
+    }
+  )
 }
 
 resource "aws_route" "public_internet" {
   route_table_id         = aws_route_table.public.id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.igw.id
+  gateway_id             = aws_internet_gateway.this.id
 }
 
-resource "aws_route_table_association" "public_assoc" {
-  for_each = aws_subnet.public
+resource "aws_route_table_association" "public" {
+  count = var.az_count
 
-  subnet_id      = each.value.id
+  subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-############################################
-# Private Route Table (via NAT)
-############################################
-
+# Private route tables (one per AZ, each using its own NAT)
 resource "aws_route_table" "private" {
+  count = var.az_count
+
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-private-rt"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-private-rt-${count.index + 1}"
+    }
+  )
 }
 
 resource "aws_route" "private_nat" {
-  route_table_id         = aws_route_table.private.id
+  count = var.az_count
+
+  route_table_id         = aws_route_table.private[count.index].id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.nat.id
+  nat_gateway_id         = aws_nat_gateway.this[count.index].id
 }
 
-resource "aws_route_table_association" "private_assoc" {
-  for_each = aws_subnet.private
+resource "aws_route_table_association" "private" {
+  count = var.az_count
 
-  subnet_id      = each.value.id
-  route_table_id = aws_route_table.private.id
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private[count.index].id
 }
 
-############################################
-# Isolated Route Table (NO NAT, NO IGW)
-############################################
-
+# Isolated route tables (no internet route)
 resource "aws_route_table" "isolated" {
+  count = var.az_count
+
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-isolated-rt"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-isolated-rt-${count.index + 1}"
+    }
+  )
 }
 
-resource "aws_route_table_association" "isolated_assoc" {
-  for_each = aws_subnet.isolated
+resource "aws_route_table_association" "isolated" {
+  count = var.az_count
 
-  subnet_id      = each.value.id
-  route_table_id = aws_route_table.isolated.id
-}
-
-############################################
-# VPC Endpoint Security Group
-############################################
-
-resource "aws_security_group" "endpoints" {
-  name        = "${var.name}-vpce-sg"
-  description = "Security group for VPC interface endpoints"
-  vpc_id      = aws_vpc.this.id
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.this.cidr_block]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.tags, {
-    Name = "${var.name}-vpce-sg"
-  })
-}
-
-############################################
-# VPC Endpoints (ECR API)
-############################################
-
-resource "aws_vpc_endpoint" "ecr_api" {
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.region}.ecr.api"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = values(aws_subnet.private)[*].id
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-
-  tags = merge(var.tags, {
-    Name = "${var.name}-ecr-api"
-  })
+  subnet_id      = aws_subnet.isolated[count.index].id
+  route_table_id = aws_route_table.isolated[count.index].id
 }

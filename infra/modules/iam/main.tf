@@ -1,3 +1,7 @@
+############################################
+# Base Tags
+############################################
+
 locals {
   base_tags = merge(
     var.tags,
@@ -341,7 +345,77 @@ resource "aws_iam_role_policy" "cloudtrail_s3_policy" {
 }
 
 ############################################
-# DynamoDB Compliance Policy (FIXED)
+# AWS Config Recorder Role (NEW)
+############################################
+
+resource "aws_iam_role" "config" {
+  name = "${var.app_name}-${var.environment}-config-recorder-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = local.base_tags
+}
+
+resource "aws_iam_role_policy" "config_policy" {
+  name = "${var.app_name}-${var.environment}-config-recorder-policy"
+  role = aws_iam_role.config.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # Allow Config to record resources
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:Describe*",
+          "s3:GetBucketAcl",
+          "s3:GetBucketLocation",
+          "config:Put*",
+          "config:Get*",
+          "config:List*"
+        ]
+        Resource = "*"
+      },
+
+      # Allow Config to write to S3
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = "${var.log_archive_bucket_arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      },
+
+      # Allow Config to publish to SNS (if used)
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:Publish"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+############################################
+# DynamoDB Compliance Policy
 ############################################
 
 data "aws_iam_policy_document" "dynamodb_compliance" {
