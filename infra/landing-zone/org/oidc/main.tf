@@ -35,14 +35,17 @@ resource "aws_iam_role" "github_deploy" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            # Correct GitHub OIDC subject format:
-            # repo:<owner>/<repo>:*
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_owner}/${var.github_repo}:*"
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:ajawesley/healthcare-event-stream-platform:ref:refs/heads/*",
+              "repo:ajawesley/healthcare-event-stream-platform:pull_request",
+              "repo:ajawesley/healthcare-event-stream-platform:workflow:*"
+            ]
           }
         }
       }
     ]
   })
+
 
   tags = merge(
     var.tags,
