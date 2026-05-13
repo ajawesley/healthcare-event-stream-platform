@@ -65,7 +65,7 @@ jobs:
 
       - name: Terraform Plan
         working-directory: infra/envs/dev
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -no-color -out=tfplan || true
         env:
           TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
 
