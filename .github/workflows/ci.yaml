@@ -19,8 +19,9 @@ jobs:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::045797643729:role/github-oidc-org
+          role-to-assume: arn:aws:iam::045797643729:role/acme-github-oidc-deploy-role
           aws-region: us-east-1
+
 
       - name: Install Go
         uses: actions/setup-go@v5
