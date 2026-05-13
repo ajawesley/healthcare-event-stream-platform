@@ -14,3 +14,11 @@ variable "extra_tags" {
   type    = map(string)
   default = {}
 }
+
+variable "github_owner" {
+  type = string
+}
+
+variable "github_repo" {
+  type = string
+}

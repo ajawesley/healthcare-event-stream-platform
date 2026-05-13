@@ -39,20 +39,20 @@ variable "account_alias" {
 }
 
 variable "vpc_cidr" {
-  type        = string
-  default     = "10.1.0.0/16"
+  type    = string
+  default = "10.1.0.0/16"
 }
 
 variable "azs" {
-  type        = list(string)
-  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  type    = list(string)
+  default = ["us-east-1a", "us-east-1b", "us-east-1c"]
 }
 
 variable "owner" {
-  type        = string
+  type = string
 }
 
 variable "extra_tags" {
-  type        = map(string)
-  default     = {}
+  type    = map(string)
+  default = {}
 }

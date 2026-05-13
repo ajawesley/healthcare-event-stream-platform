@@ -1,7 +1,9 @@
-output "permission_boundary_policy_arn" {
-  value = module.permission_boundaries.permission_boundary_arn
+output "github_oidc_role_arn" {
+  description = "Org-level GitHub OIDC deploy role ARN"
+  value       = module.oidc.github_deploy_role_arn
 }
 
 output "oidc_provider_arn" {
-  value = module.oidc.provider_arn
+  description = "OIDC provider ARN"
+  value       = module.oidc.oidc_provider_arn
 }

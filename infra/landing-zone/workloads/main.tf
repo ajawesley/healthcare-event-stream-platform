@@ -9,9 +9,9 @@ provider "aws" {
 locals {
   tags = merge(
     {
-      Project = var.org_name
+      Project     = var.org_name
       Environment = "workloads"
-      Owner = var.owner
+      Owner       = var.owner
     },
     var.extra_tags
   )
@@ -59,10 +59,10 @@ resource "aws_guardduty_detector" "this" {
 }
 
 resource "aws_guardduty_member" "this" {
-  account_id               = var.workloads_account_id
-  detector_id              = aws_guardduty_detector.this.id
-  email                    = var.security_contact_email
-  invite                   = true
+  account_id                 = var.workloads_account_id
+  detector_id                = aws_guardduty_detector.this.id
+  email                      = var.security_contact_email
+  invite                     = true
   disable_email_notification = true
 }
 

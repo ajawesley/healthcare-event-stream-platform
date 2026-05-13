@@ -43,7 +43,7 @@ resource "aws_glue_job" "this" {
     "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
 
     # STATIC ONLY — Lambda overrides input_path at runtime
-    "--output_base_path" = "s3://${var.golden_bucket}/"
+    "--output_base_path" = "s3://${var.golden_bucket}/golden-events/"
     "--error_path"       = "s3://${var.golden_bucket}/errors/"
 
     # Lineage-aware arguments (Glue job reads these from S3 JSON)

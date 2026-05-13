@@ -1,5 +1,5 @@
 ############################################
-# Providers
+# Terraform + Providers
 ############################################
 
 terraform {
@@ -10,6 +10,15 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+  }
+}
+
+# Workload account assumes the ORG-LEVEL GitHub OIDC deploy role
+provider "aws" {
+  region = var.aws_region
+
+  assume_role {
+    role_arn = var.github_oidc_role_arn
   }
 }
 
@@ -27,22 +36,31 @@ locals {
 }
 
 ############################################
-# VPC
+# VPC (Landing Zone Baseline)
 ############################################
 
 module "vpc" {
   source = "../../modules/vpc"
 
-  name       = "${var.app_name}-${var.environment}"
-  region     = var.aws_region
-  vpc_cidr   = "10.0.0.0/16"
-  primary_az = "us-east-1a"
+  name_prefix = "${var.app_name}-${var.environment}"
+  vpc_cidr    = "10.10.0.0/16"
+  az_count    = 3
 
-  azs = {
-    "us-east-1a" = { index = 0 }
-    "us-east-1b" = { index = 1 }
-    "us-east-1c" = { index = 2 }
-  }
+  tags = local.base_tags
+}
+
+############################################
+# VPC Endpoints (Private Connectivity)
+############################################
+
+module "endpoints" {
+  source = "../../modules/endpoints"
+
+  name_prefix        = "${var.app_name}-${var.environment}"
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  vpc_cidr           = module.vpc.vpc_cidr
+  region             = var.aws_region
 
   tags = local.base_tags
 }
@@ -65,28 +83,84 @@ resource "aws_kms_key" "this" {
 module "s3_buckets" {
   source = "../../modules/s3_buckets"
 
-  app_name    = var.app_name
-  environment = var.environment
-  aws_region  = var.aws_region
-
-  owner       = var.owner
-  cost_center = var.cost_center
-
   raw_bucket_name         = var.raw_bucket_name
-  access_logs_bucket_name = var.access_logs_bucket_name
   golden_bucket_name      = "${var.app_name}-${var.environment}-golden-events-001"
   script_bucket_name      = "hesp-${var.environment}-glue-scripts-001"
+  access_logs_bucket_name = var.access_logs_bucket_name
+  log_archive_bucket_name = var.log_archive_bucket_name
 
-  s3_output_base_path = var.s3_output_base_path
-  s3_error_path       = var.s3_error_path
-  error_prefix        = "errors"
+  kms_key_arn  = aws_kms_key.this.arn
+  error_prefix = "errors"
+  tags         = local.base_tags
+}
 
-  glue_temp_dir        = var.glue_temp_dir
-  glue_script_s3_path  = var.glue_script_s3_path
-  lambda_zip_path      = var.lambda_zip_path
+############################################
+# Glue Job
+############################################
+
+module "glue_job" {
+  source = "../../modules/glue_job"
+
+  app_name    = var.app_name
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+  tags        = local.base_tags
+
+  glue_role_arn = module.iam.glue_role_arn
+
+  script_bucket  = module.s3_buckets.scripts_bucket_name
+  script_s3_path = var.glue_script_s3_path
+  temp_dir       = var.glue_temp_dir
+
+  log_group_name = "/aws/glue/${var.app_name}-${var.environment}-job"
 
   kms_key_arn = aws_kms_key.this.arn
+
+  raw_bucket    = module.s3_buckets.raw_bucket_name
+  golden_bucket = module.s3_buckets.golden_bucket_name
+}
+
+############################################
+# Glue Crawlers
+############################################
+
+module "glue_crawlers" {
+  source = "../../modules/glue_crawlers"
+
+  environment = var.environment
   tags        = local.base_tags
+
+  events_bucket = module.s3_buckets.raw_bucket_name
+  errors_bucket = "${module.s3_buckets.golden_bucket_name}/errors"
+}
+
+############################################
+# Lambda Trigger for Glue Job
+############################################
+
+module "lambda_trigger" {
+  source = "../../modules/lambda_trigger"
+
+  app_name    = var.app_name
+  environment = var.environment
+  owner       = var.owner
+  cost_center = var.cost_center
+  tags        = local.base_tags
+
+  glue_job_name = module.glue_job.glue_job_name
+  glue_job_arn  = module.glue_job.glue_job_arn
+
+  raw_bucket_name = module.s3_buckets.raw_bucket_name
+
+  lambda_role_arn  = module.iam.lambda_role_arn
+  lambda_role_name = module.iam.lambda_role_name
+
+  lambda_zip_path = var.lambda_zip_path
+  kms_key_arn     = aws_kms_key.this.arn
+
+  output_base_path = var.s3_output_base_path
+  error_path       = var.s3_error_path
 }
 
 ############################################
@@ -120,11 +194,33 @@ module "iam" {
   dynamodb_table_arn = module.compliance_dynamodb.table_arn
 
   raw_bucket_arn    = module.s3_buckets.raw_bucket_arn
-  script_bucket_arn = module.s3_buckets.script_bucket_arn
+  script_bucket_arn = module.s3_buckets.scripts_bucket_arn
   golden_bucket_arn = module.s3_buckets.golden_bucket_arn
 
   kms_key_arn   = aws_kms_key.this.arn
   log_group_arn = aws_cloudwatch_log_group.ecs.arn
+
+  # Required for AWS Config Recorder role
+  log_archive_bucket_arn = module.s3_buckets.log_archive_bucket_arn
+
+  tags = local.base_tags
+}
+
+############################################
+# AWS Config (Landing Zone Baseline)
+############################################
+
+module "config" {
+  source = "../../modules/config"
+
+  name_prefix = "${var.app_name}-${var.environment}"
+  region      = var.aws_region
+
+  log_archive_bucket_arn  = module.s3_buckets.log_archive_bucket_arn
+  log_archive_bucket_name = module.s3_buckets.log_archive_bucket_name
+
+  kms_key_arn     = aws_kms_key.this.arn
+  config_role_arn = module.iam.config_role_arn
 
   tags = local.base_tags
 }
@@ -165,7 +261,7 @@ module "alb" {
   app_name              = var.app_name
   environment           = var.environment
   vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.public_subnets
+  subnet_ids            = module.vpc.public_subnet_ids
   alb_security_group_id = aws_security_group.alb.id
 
   owner       = var.owner
@@ -223,7 +319,7 @@ module "compliance_redis" {
 
   name                    = "${var.app_name}-${var.environment}-compliance-redis"
   vpc_id                  = module.vpc.vpc_id
-  isolated_subnet_ids     = module.vpc.isolated_subnets
+  isolated_subnet_ids     = module.vpc.isolated_subnet_ids
   ingestion_service_sg_id = aws_security_group.ecs.id
 
   node_type                  = "cache.t4g.small"
@@ -242,7 +338,7 @@ module "compliance_db" {
 
   name                    = "${var.app_name}-${var.environment}-compliance-db"
   vpc_id                  = module.vpc.vpc_id
-  isolated_subnet_ids     = module.vpc.isolated_subnets
+  isolated_subnet_ids     = module.vpc.isolated_subnet_ids
   ingestion_service_sg_id = aws_security_group.ecs.id
 
   db_name     = var.compliance_db_name
@@ -276,7 +372,7 @@ module "ecs_service" {
   task_execution_role_arn = module.iam.execution_role_arn
   task_role_arn           = module.iam.task_role_arn
 
-  subnet_ids         = module.vpc.private_subnets
+  subnet_ids         = module.vpc.private_subnet_ids
   security_group_ids = [aws_security_group.ecs.id]
 
   s3_bucket_name = module.s3_buckets.raw_bucket_name

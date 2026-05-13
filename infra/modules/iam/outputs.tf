@@ -25,3 +25,8 @@ output "lambda_role_name" {
 output "cloudtrail_s3_role_arn" {
   value = aws_iam_role.cloudtrail_s3_role.arn
 }
+
+output "config_role_arn" {
+  description = "IAM role ARN for AWS Config Recorder"
+  value       = aws_iam_role.config.arn
+}
