@@ -32,7 +32,7 @@ type fakeDetector struct {
 	format config.Format
 }
 
-func (f fakeDetector) Detect(_ []byte) config.Format {
+func (f fakeDetector) Detect(_ context.Context, _ []byte) config.Format {
 	return f.format
 }
 

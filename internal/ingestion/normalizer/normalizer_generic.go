@@ -17,8 +17,7 @@ func NewGenericNormalizer() *GenericNormalizer {
 	return &GenericNormalizer{}
 }
 
-func (n *GenericNormalizer) Normalize(_ context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	ctx := context.Background()
+func (n *GenericNormalizer) Normalize(ctx context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "generic_normalizer"),
 		zap.String("event_id", env.EventID),

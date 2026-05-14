@@ -68,21 +68,24 @@ resource "aws_kms_key" "this" {
 }
 
 ############################################
-# S3 Buckets (Raw, Golden, Scripts, Access Logs)
+# S3 Buckets (Raw, Golden, Scripts, Access Logs, Log Archive)
 ############################################
 
 module "s3_buckets" {
   source = "../../modules/s3_buckets"
 
-  raw_bucket_name         = var.raw_bucket_name
+  raw_bucket_name         = "${var.app_name}-${var.environment}-raw-events-001"
   golden_bucket_name      = "${var.app_name}-${var.environment}-golden-events-001"
-  script_bucket_name      = "hesp-${var.environment}-glue-scripts-001"
-  access_logs_bucket_name = var.access_logs_bucket_name
+  script_bucket_name      = "${var.app_name}-${var.environment}-glue-scripts-001"
+  access_logs_bucket_name = "${var.app_name}-${var.environment}-access-logs-001"
+
+  # Centralized log archive bucket (AWS Config, CloudTrail, GuardDuty)
   log_archive_bucket_name = var.log_archive_bucket_name
 
   kms_key_arn  = aws_kms_key.this.arn
   error_prefix = "errors"
-  tags         = local.base_tags
+
+  tags = local.base_tags
 }
 
 ############################################
