@@ -21,7 +21,7 @@ type DetectorConfig struct {
 }
 
 type Detector interface {
-	Detect(payload []byte) config.Format
+	Detect(ctx context.Context, payload []byte) config.Format
 }
 
 type detectorImpl struct {
@@ -32,16 +32,10 @@ func NewDetector() Detector {
 	return &detectorImpl{rules: config.GetStreamConfig().GetRules()}
 }
 
-func (d *detectorImpl) Detect(payload []byte) config.Format {
-	ctx := context.Background()
+func (d *detectorImpl) Detect(ctx context.Context, payload []byte) config.Format {
 
-	// SAFETY: ensure logger is never nil
-	log := observability.WithTrace(ctx)
-	if log == nil {
-		log = zap.NewNop()
-	}
-
-	log = log.With(zap.String("component", "detector"))
+	log := observability.WithTrace(ctx).
+		With(zap.String("component", "detector"))
 
 	// Log preview
 	preview := payload

@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 ############################################
 # Raw Events Bucket
 ############################################
@@ -86,7 +88,7 @@ resource "aws_s3_bucket_public_access_block" "access_logs" {
 }
 
 ############################################
-# CloudTrail Log Archive Bucket (NEW)
+# CloudTrail + AWS Config Log Archive Bucket
 ############################################
 
 resource "aws_s3_bucket" "log_archive" {
@@ -121,13 +123,15 @@ resource "aws_s3_bucket_public_access_block" "log_archive" {
   restrict_public_buckets = true
 }
 
-# REQUIRED FOR CLOUDTRAIL — FIXES YOUR ERROR
 resource "aws_s3_bucket_policy" "log_archive" {
   bucket = aws_s3_bucket.log_archive.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      ############################################
+      # CloudTrail Permissions
+      ############################################
       {
         Sid    = "AWSCloudTrailAclCheck"
         Effect = "Allow"
@@ -145,6 +149,33 @@ resource "aws_s3_bucket_policy" "log_archive" {
         }
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.log_archive.arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      },
+
+      ############################################
+      # AWS Config Permissions
+      ############################################
+      {
+        Sid    = "AWSConfigBucketPermissionsCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.log_archive.arn
+      },
+      {
+        Sid    = "AWSConfigBucketDelivery"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.log_archive.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/Config/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"

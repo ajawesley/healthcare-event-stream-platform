@@ -1,0 +1,32 @@
+# Terraform
+*.tf
+*.tfvars
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+infra/
+
+# Git
+.git
+.gitignore
+
+# Local dev
+*.log
+*.tmp
+*.swp
+
+# Python cache (if applicable)
+__pycache__/
+*.pyc
+
+# Node cache (if applicable)
+node_modules/
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# OS junk
+.DS_Store
+Thumbs.db

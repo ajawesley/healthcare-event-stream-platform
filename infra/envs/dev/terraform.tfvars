@@ -22,7 +22,7 @@ s3_error_path       = "s3://hesp-dev-golden-events-001/errors/"
 glue_script_s3_path = "scripts/glue_job.py"
 glue_temp_dir       = "tmp/"
 
-lambda_zip_path = "../../cmd/lambda/lambda.zip"
+lambda_zip_path = "../../../cmd/lambda/lambda.zip"
 
 log_archive_bucket_name = "acmecorp-log-archive-001"
 

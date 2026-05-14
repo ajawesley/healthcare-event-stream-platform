@@ -24,7 +24,7 @@ func NewGuard(client ClientAPI) ComplianceGuard {
 
 func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	stageStart := time.Now()
-	observability.Debug(ctx, "compliance guard invoked")
+	observability.Info(ctx, "compliance guard invoked")
 
 	// -------------------------------------------------------------------------
 	// Validate event
@@ -45,7 +45,7 @@ func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	// Derive entity identifiers
 	// -------------------------------------------------------------------------
 	entityType, entityID := deriveEntity(evt)
-	observability.Debug(ctx, "derived entity identifiers",
+	observability.Info(ctx, "derived entity identifiers",
 		zap.String("entity_type", entityType),
 		zap.String("entity_id", entityID),
 	)

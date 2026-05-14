@@ -94,7 +94,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		sanitizedQuoted = sanitizedQuoted[:4000] + `"...(truncated)`
 	}
 
-	log.Debug("router_presanitize",
+	log.Info("router_presanitize",
 		zap.String("event_id", env.EventID),
 		zap.String("raw", rawQuoted),
 		zap.String("sanitized", sanitizedQuoted),
@@ -108,9 +108,9 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		observability.IncrementLineageFailure(ctx, "detect", "detector_not_configured")
 		panic(errors.New("no detector configured"))
 	}
-	format := r.detector.Detect(sanitized)
+	format := r.detector.Detect(ctx, sanitized)
 
-	log.Debug("router_detect",
+	log.Info("router_detect",
 		zap.String("event_id", env.EventID),
 		zap.String("format", string(format)),
 	)
@@ -150,7 +150,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		return nil, fmt.Errorf("normalization failed: %w", err)
 	}
 
-	log.Debug("router_normalize",
+	log.Info("router_normalize",
 		zap.String("event_id", env.EventID),
 		zap.Any("normalized", norm),
 	)
@@ -190,7 +190,7 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		return nil, fmt.Errorf("transformation failed: %w", err)
 	}
 
-	log.Debug("router_transform",
+	log.Info("router_transform",
 		zap.String("event_id", env.EventID),
 		zap.Any("canonical", canon),
 	)
@@ -206,32 +206,30 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		panic(errors.New("no compliance guard configured"))
 	}
 
-	if r.complianceGuard != nil {
-		compStart := time.Now()
-		err := r.complianceGuard.Apply(ctx, canon)
-		compDuration := time.Since(compStart)
+	compStart := time.Now()
+	err = r.complianceGuard.Apply(ctx, canon)
+	compDuration := time.Since(compStart)
 
-		observability.ObserveStageLatency(ctx, "compliance", env.EventType, env.SourceSystem, compDuration)
+	observability.ObserveStageLatency(ctx, "compliance", env.EventType, env.SourceSystem, compDuration)
 
-		if err != nil {
-			log.Error("router_compliance_error",
-				zap.String("event_id", env.EventID),
-				zap.Error(err),
-			)
-			observability.IncrementLineageFailure(ctx, "compliance", "compliance_stage_failed")
-			return nil, fmt.Errorf("compliance stage failed: %w", err)
-		}
-
-		// Lineage logging for compliance
-		log.Debug("router_compliance",
+	if err != nil {
+		log.Error("router_compliance_error",
 			zap.String("event_id", env.EventID),
-			zap.Bool("compliance_applied", canon.ComplianceApplied),
-			zap.Bool("compliance_flag", canon.ComplianceFlag),
-			zap.String("compliance_reason", canon.ComplianceReason),
-			zap.String("compliance_rule_type", canon.ComplianceRuleType),
-			zap.String("compliance_rule_id", canon.ComplianceRuleID),
+			zap.Error(err),
 		)
+		observability.IncrementLineageFailure(ctx, "compliance", "compliance_stage_failed")
+		return nil, fmt.Errorf("compliance stage failed: %w", err)
 	}
+
+	// Lineage logging for compliance
+	log.Debug("router_compliance",
+		zap.String("event_id", env.EventID),
+		zap.Bool("compliance_applied", canon.ComplianceApplied),
+		zap.Bool("compliance_flag", canon.ComplianceFlag),
+		zap.String("compliance_reason", canon.ComplianceReason),
+		zap.String("compliance_rule_type", canon.ComplianceRuleType),
+		zap.String("compliance_rule_id", canon.ComplianceRuleID),
+	)
 
 	// 7. DISPATCH (with metrics)
 	if r.dispatcher == nil {

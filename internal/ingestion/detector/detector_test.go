@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
@@ -72,7 +73,7 @@ func TestDetect(t *testing.T) {
 			// Inject rules directly
 			d := &detectorImpl{rules: tt.rules}
 
-			got := d.Detect(tt.payload)
+			got := d.Detect(context.Background(), tt.payload)
 			if got != tt.expected {
 				t.Fatalf("expected %s, got %s", tt.expected, got)
 			}
