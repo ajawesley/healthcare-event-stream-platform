@@ -20,8 +20,7 @@ func NewX12Transformer() *X12Transformer {
 	return &X12Transformer{}
 }
 
-func (t *X12Transformer) Transform(_ context.Context, ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
-	ctx := context.Background()
+func (t *X12Transformer) Transform(ctx context.Context, ne *models.NormalizedEvent, env api.Envelope) (*models.CanonicalEvent, error) {
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "transformer"),
 		zap.String("transformer", "x12"),

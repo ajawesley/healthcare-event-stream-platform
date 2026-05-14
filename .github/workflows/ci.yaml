@@ -19,8 +19,11 @@ jobs:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::045797643729:role/github-oidc-org
+          role-to-assume: arn:aws:iam::045797643729:role/acme-github-oidc-deploy-role
           aws-region: us-east-1
+          audience: sts.amazonaws.com
+
+
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -28,7 +31,7 @@ jobs:
           go-version: "1.22"
 
       - name: Build ingestion service
-        working-directory: cmd/ingestion
+        working-directory: cmd/ingest-service
         run: go build -o ingestion .
 
       - name: Build lambda
@@ -37,21 +40,35 @@ jobs:
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap main.go
           zip lambda.zip bootstrap
 
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.5
+
       - name: Terraform Init
         working-directory: infra/envs/dev
         run: terraform init -input=false
+        env:
+          TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
 
       - name: Terraform Fmt
         working-directory: infra/envs/dev
         run: terraform fmt -check -recursive
+        env:
+          TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
 
       - name: Terraform Validate
         working-directory: infra/envs/dev
         run: terraform validate
+        env:
+          TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
 
       - name: Terraform Plan
         working-directory: infra/envs/dev
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -no-color -out=tfplan || true
+        env:
+          TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
+
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4

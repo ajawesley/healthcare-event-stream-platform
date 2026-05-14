@@ -16,8 +16,7 @@ func NewX12Normalizer() *X12Normalizer {
 	return &X12Normalizer{}
 }
 
-func (n *X12Normalizer) Normalize(_ context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
-	ctx := context.Background()
+func (n *X12Normalizer) Normalize(ctx context.Context, raw []byte, env api.Envelope) (*models.NormalizedEvent, error) {
 	log := observability.WithTrace(ctx).With(
 		zap.String("component", "x12_normalizer"),
 		zap.String("event_id", env.EventID),

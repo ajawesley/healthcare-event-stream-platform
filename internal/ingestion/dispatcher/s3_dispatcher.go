@@ -40,27 +40,15 @@ func NewS3Dispatcher(client *s3.Client, bucket, prefix, kmsKeyARN string) *S3Dis
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Dispatch writes the canonical event + envelope + raw payload to S3.
-// Includes:
-//   - trace_id / span_id
-//   - lineage stages
-//   - compliance metadata (inside canonical_event)
-//   - transmission_timestamp
-//   - dispatched_at
-//
-// -----------------------------------------------------------------------------
 func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEvent, env api.Envelope, raw []byte) error {
 	start := time.Now()
 
-	// Use existing span if present
 	tr := trace.SpanFromContext(ctx).TracerProvider().Tracer("hesp-ecs")
 	ctx, span := tr.Start(ctx, "s3.dispatch")
 	defer span.End()
 
 	log := observability.WithTrace(ctx)
 
-	// Extract trace + span IDs for payload
 	sc := span.SpanContext()
 	traceID := sc.TraceID().String()
 	spanID := sc.SpanID().String()
@@ -84,20 +72,13 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.String("raw_bytes", strconv.Quote(string(raw))),
 	)
 
-	// Transmission timestamp BEFORE payload build
 	transmissionTime := time.Now().UTC()
 
-	// -------------------------------------------------------------------------
-	// Lineage stages
-	// -------------------------------------------------------------------------
 	var lineageStages []observability.LineageStage
 	if lineage := observability.GetLineage(ctx); lineage != nil {
 		lineageStages = lineage.Stages()
 	}
 
-	// -------------------------------------------------------------------------
-	// Build S3 object payload
-	// -------------------------------------------------------------------------
 	obj := map[string]any{
 		"envelope":               env,
 		"canonical_event":        event,
@@ -119,7 +100,6 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		return fmt.Errorf("marshal s3 object: %w", err)
 	}
 
-	// Compute MD5 checksum
 	sum := md5.Sum(payload)
 	md5b64 := base64.StdEncoding.EncodeToString(sum[:])
 
@@ -133,56 +113,73 @@ func (d *S3Dispatcher) Dispatch(ctx context.Context, event *models.CanonicalEven
 		zap.Int("payload_bytes", len(payload)),
 	)
 
-	// -------------------------------------------------------------------------
-	// Write to S3 with resiliency
-	// -------------------------------------------------------------------------
-	err = resilience.DoWithFallback(ctx, resilience.Dependency("s3"), func(ctx context.Context) error {
-		s3Start := time.Now()
+	dep := resilience.Dependency("s3")
 
-		_, putErr := d.client.PutObject(ctx, &s3.PutObjectInput{
-			Bucket:               aws.String(d.bucket),
-			Key:                  aws.String(fullKey),
-			Body:                 bytes.NewReader(payload),
-			ContentMD5:           aws.String(md5b64),
-			ServerSideEncryption: types.ServerSideEncryptionAwsKms,
-			SSEKMSKeyId:          aws.String(d.kmsKeyARN),
-			ContentType:          aws.String("application/json"),
-		})
+	// Retry policy with logging + attempt counter
+	attempt := 0
+	retryPolicy := func(retryErr error) bool {
+		attempt++
+		observability.Warn(ctx, "s3_retry_decision",
+			zap.String("dependency", string(dep)),
+			zap.Int("retry_attempt", attempt),
+			zap.Error(retryErr),
+			zap.Bool("retry_approved", true),
+		)
+		return true
+		// add metric:
+		// - dependency_retry_count{dependency, attempt}
+	}
 
-		s3Duration := time.Since(s3Start)
-		observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, putErr == nil)
+	err = resilience.DoWithFallback(
+		ctx,
+		dep,
+		func(ctx context.Context) error {
+			s3Start := time.Now()
 
-		if putErr != nil {
-			observability.Error(ctx, "s3_dispatch_failed", putErr, "s3_error", "failed to write object to S3",
+			_, putErr := d.client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket:               aws.String(d.bucket),
+				Key:                  aws.String(fullKey),
+				Body:                 bytes.NewReader(payload),
+				ContentMD5:           aws.String(md5b64),
+				ServerSideEncryption: types.ServerSideEncryptionAwsKms,
+				SSEKMSKeyId:          aws.String(d.kmsKeyARN),
+				ContentType:          aws.String("application/json"),
+			})
+
+			s3Duration := time.Since(s3Start)
+			observability.ObserveS3PutLatency(ctx, d.bucket, fullKey, s3Duration, putErr == nil)
+
+			if putErr != nil {
+				observability.Error(ctx, "s3_dispatch_failed", putErr, "s3_error", "failed to write object to S3",
+					zap.String("bucket", d.bucket),
+					zap.String("key", fullKey),
+					zap.String("trace_id", traceID),
+					zap.String("span_id", spanID),
+					zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+				)
+				span.RecordError(putErr)
+				return putErr
+			}
+
+			return nil
+		},
+		func(ctx context.Context, fbErr error) error {
+			observability.Error(ctx, "s3_dispatch_resiliency_fallback", fbErr, "s3_fallback", "s3 dispatch failed after resiliency",
 				zap.String("bucket", d.bucket),
 				zap.String("key", fullKey),
 				zap.String("trace_id", traceID),
 				zap.String("span_id", spanID),
-				zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 			)
-			span.RecordError(putErr)
-			return putErr
-		}
-
-		return nil
-	}, func(ctx context.Context, fbErr error) error {
-		observability.Error(ctx, "s3_dispatch_resiliency_fallback", fbErr, "s3_fallback", "s3 dispatch failed after resiliency",
-			zap.String("bucket", d.bucket),
-			zap.String("key", fullKey),
-			zap.String("trace_id", traceID),
-			zap.String("span_id", spanID),
-		)
-		span.RecordError(fbErr)
-		return fbErr
-	})
+			span.RecordError(fbErr)
+			return fbErr
+		},
+		retryPolicy,
+	)
 
 	if err != nil {
 		return fmt.Errorf("s3 dispatcher failed: %w", err)
 	}
 
-	// -------------------------------------------------------------------------
-	// Mark lineage stage: written
-	// -------------------------------------------------------------------------
 	if lineage := observability.GetLineage(ctx); lineage != nil {
 		stageStart := time.Now()
 		lineage.MarkStage("written")
