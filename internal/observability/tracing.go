@@ -8,10 +8,11 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"google.golang.org/grpc"
 )
 
 // InitTracing initializes OpenTelemetry tracing and returns a shutdown function.
@@ -19,14 +20,14 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 	ctx := context.Background()
 
 	// -----------------------------------------
-	// OTLP endpoint (env‑driven, HTTP)
+	// OTLP endpoint (env‑driven, gRPC)
 	// -----------------------------------------
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
-		// Default to ADOT sidecar OTLP HTTP
-		endpoint = "localhost:4318"
+		// Default to ADOT sidecar OTLP gRPC
+		endpoint = "127.0.0.1:4317"
 	}
-	fmt.Printf("[OTEL] Using OTLP HTTP endpoint: %s\n", endpoint)
+	fmt.Printf("[OTEL] Using OTLP gRPC endpoint: %s\n", endpoint)
 
 	// -----------------------------------------
 	// Cloud region (env‑driven)
@@ -41,13 +42,14 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 	fmt.Printf("[OTEL] Using cloud region: %s\n", region)
 
 	// -----------------------------------------
-	// OTLP HTTP exporter client
+	// OTLP gRPC exporter client
 	// -----------------------------------------
-	fmt.Printf("[OTEL] Initializing OTLP HTTP exporter...\n")
+	fmt.Printf("[OTEL] Initializing OTLP gRPC exporter...\n")
 
-	client := otlptracehttp.NewClient(
-		otlptracehttp.WithEndpoint(endpoint),
-		otlptracehttp.WithInsecure(),
+	client := otlptracegrpc.NewClient(
+		otlptracegrpc.WithEndpoint(endpoint),
+		otlptracegrpc.WithInsecure(),
+		otlptracegrpc.WithDialOption(grpc.WithBlock()),
 	)
 
 	exporter, err := otlptrace.New(ctx, client)
@@ -56,7 +58,7 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 		return func(context.Context) error { return nil }
 	}
 
-	fmt.Printf("[OTEL] OTLP HTTP exporter initialized.\n")
+	fmt.Printf("[OTEL] OTLP gRPC exporter initialized.\n")
 
 	// -----------------------------------------
 	// Resource attributes

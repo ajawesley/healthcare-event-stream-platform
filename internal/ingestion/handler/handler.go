@@ -12,6 +12,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/router"
 	"github.com/ajawes/hesp/internal/observability"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -42,7 +43,11 @@ func NewHandler(opts ...HandlerOption) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	// ⭐ Create a REAL OTEL span for the request
+	tr := otel.Tracer("ingestion")
+	ctx, span := tr.Start(r.Context(), "ingest_request")
+	defer span.End()
+
 	start := time.Now()
 
 	log := observability.WithTrace(ctx)

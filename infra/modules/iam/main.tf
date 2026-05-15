@@ -77,6 +77,45 @@ resource "aws_iam_role_policy" "ecs_execution_sm" {
 }
 
 ############################################
+# ECS Exec Permissions (NEW)
+############################################
+
+resource "aws_iam_policy" "ecs_execution_exec" {
+  name = "ecs-execution-exec-${var.environment}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:CreateControlChannel",
+          "ssm:CreateDataChannel",
+          "ssm:OpenControlChannel",
+          "ssm:OpenDataChannel",
+          "ssm:UpdateInstanceInformation",
+          "ec2messages:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_execution_exec_attach" {
+  role       = aws_iam_role.ecs_execution.name
+  policy_arn = aws_iam_policy.ecs_execution_exec.arn
+}
+
+############################################
 # ECS Task Role
 ############################################
 
@@ -101,7 +140,6 @@ resource "aws_iam_policy" "ecs_task_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # Raw bucket access
       {
         Effect = "Allow"
         Action = [
@@ -114,8 +152,6 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "${var.raw_bucket_arn}/*"
         ]
       },
-
-      # KMS decrypt/encrypt
       {
         Effect = "Allow"
         Action = [
@@ -126,8 +162,6 @@ resource "aws_iam_policy" "ecs_task_policy" {
         ]
         Resource = var.kms_key_arn
       },
-
-      # X-Ray permissions
       {
         Effect = "Allow"
         Action = [
@@ -137,6 +171,18 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "xray:GetSamplingTargets"
         ]
         Resource = "*"
+      },
+      {
+        "Effect" : "Allow",
+        "Action" : [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+          "ssm:UpdateInstanceInformation",
+          "ec2messages:*"
+        ],
+        "Resource" : "*"
       }
     ]
   })
@@ -172,7 +218,6 @@ resource "aws_iam_policy" "glue_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # Raw bucket
       {
         Effect = "Allow"
         Action = ["s3:GetObject", "s3:ListBucket"]
@@ -181,8 +226,6 @@ resource "aws_iam_policy" "glue_policy" {
           "${var.raw_bucket_arn}/*"
         ]
       },
-
-      # Script bucket
       {
         Effect = "Allow"
         Action = ["s3:GetObject", "s3:ListBucket"]
@@ -191,8 +234,6 @@ resource "aws_iam_policy" "glue_policy" {
           "${var.script_bucket_arn}/*"
         ]
       },
-
-      # Script bucket write paths
       {
         Effect = "Allow"
         Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"]
@@ -202,8 +243,6 @@ resource "aws_iam_policy" "glue_policy" {
           "${var.script_bucket_arn}/spark-history/*"
         ]
       },
-
-      # Golden bucket
       {
         Effect = "Allow"
         Action = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]
@@ -212,8 +251,6 @@ resource "aws_iam_policy" "glue_policy" {
           "${var.golden_bucket_arn}/*"
         ]
       },
-
-      # KMS
       {
         Effect = "Allow"
         Action = [
@@ -224,8 +261,6 @@ resource "aws_iam_policy" "glue_policy" {
         ]
         Resource = var.kms_key_arn
       },
-
-      # CloudWatch Logs
       {
         Effect = "Allow"
         Action = [
@@ -235,8 +270,6 @@ resource "aws_iam_policy" "glue_policy" {
         ]
         Resource = "arn:aws:logs:*:*:*"
       },
-
-      # X-Ray permissions
       {
         Effect = "Allow"
         Action = [
@@ -345,7 +378,7 @@ resource "aws_iam_role_policy" "cloudtrail_s3_policy" {
 }
 
 ############################################
-# AWS Config Recorder Role (NEW)
+# AWS Config Recorder Role
 ############################################
 
 resource "aws_iam_role" "config" {
@@ -374,7 +407,6 @@ resource "aws_iam_role_policy" "config_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # Allow Config to record resources
       {
         Effect = "Allow"
         Action = [
@@ -387,8 +419,6 @@ resource "aws_iam_role_policy" "config_policy" {
         ]
         Resource = "*"
       },
-
-      # Allow Config to write to S3
       {
         Effect = "Allow"
         Action = [
@@ -401,8 +431,6 @@ resource "aws_iam_role_policy" "config_policy" {
           }
         }
       },
-
-      # Allow Config to publish to SNS (if used)
       {
         Effect = "Allow"
         Action = [

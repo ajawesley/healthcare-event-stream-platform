@@ -7,9 +7,16 @@ import (
 	"syscall"
 
 	"github.com/ajawes/hesp/internal/ingestion/server"
+	"github.com/ajawes/hesp/internal/observability"
 )
 
 func main() {
+	// -----------------------------
+	// Observability (still works locally)
+	// -----------------------------
+	observability.NewLogger("hesp-ecs", "dev")
+	observability.InitMetrics("hesp-ecs", "dev")
+
 	srv := server.New()
 
 	// graceful shutdown

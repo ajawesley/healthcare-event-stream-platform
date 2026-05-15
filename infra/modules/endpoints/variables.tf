@@ -28,3 +28,8 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ecs_task_sg_id" {
+  type = string
+}
+
