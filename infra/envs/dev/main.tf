@@ -47,6 +47,8 @@ module "vpc" {
 module "endpoints" {
   source = "../../modules/endpoints"
 
+  ecs_task_sg_id = tolist(module.ecs_service.ecs_service_sg_ids)[0]
+
   name_prefix        = "${var.app_name}-${var.environment}"
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
@@ -368,6 +370,7 @@ module "ecs_service" {
 
   subnet_ids         = module.vpc.private_subnet_ids
   security_group_ids = [aws_security_group.ecs.id]
+
 
   s3_bucket_name = module.s3_buckets.raw_bucket_name
   s3_prefix      = "events"

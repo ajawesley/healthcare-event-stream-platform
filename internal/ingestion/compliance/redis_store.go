@@ -34,9 +34,18 @@ func (s *RedisStore) Get(ctx context.Context, entityType, entityID string) (*Rul
 
 	val, err := s.client.Get(ctx, key).Result()
 	if err != nil {
-		// Normal cache miss — keep this quiet
+		// Normal cache miss
 		observability.Debug(ctx, "redis cache miss",
 			zap.String("key", key),
+		)
+		return nil, false
+	}
+
+	// Empty or null values should be treated as cache miss
+	if val == "" || val == "null" || val == "{}" {
+		observability.Warn(ctx, "redis returned empty rule",
+			zap.String("key", key),
+			zap.String("raw", val),
 		)
 		return nil, false
 	}
@@ -46,6 +55,15 @@ func (s *RedisStore) Get(ctx context.Context, entityType, entityID string) (*Rul
 		observability.Warn(ctx, "redis cache unmarshal failed",
 			zap.String("key", key),
 			zap.Error(err),
+		)
+		return nil, false
+	}
+
+	// Detect zero-value rule (invalid)
+	if r.ID == "" && r.RuleType == "" && !r.ComplianceFlag {
+		observability.Warn(ctx, "redis returned zero-value rule (treating as miss)",
+			zap.String("key", key),
+			zap.Any("rule", r),
 		)
 		return nil, false
 	}

@@ -5,8 +5,8 @@ import "context"
 type (
 	ClientAPI interface {
 		LookupRule(ctx context.Context, entityType, entityID string) (*Rule, error)
-		Ready(ctx context.Context) error
 	}
+
 	client struct {
 		pg    *PostgresStore // PostgresStore
 		dyn   *DynamoStore   // DynamoStore

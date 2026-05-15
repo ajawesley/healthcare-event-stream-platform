@@ -18,7 +18,7 @@ import (
 // -----------------------------------------------------------------------------
 
 type TransformationRouter interface {
-	TransformerFor(format config.Format) (transformer.Transformer, error)
+	TransformerFor(ctx context.Context, format config.Format) (transformer.Transformer, error)
 }
 
 // -----------------------------------------------------------------------------
@@ -80,8 +80,7 @@ func (lt *lineageTransformer) Transform(ctx context.Context, norm *models.Normal
 // ⭐ TransformerFor now wraps transformers with lineageTransformer
 // -----------------------------------------------------------------------------
 
-func (r *transformationRouterImpl) TransformerFor(format config.Format) (transformer.Transformer, error) {
-	ctx := context.Background()
+func (r *transformationRouterImpl) TransformerFor(ctx context.Context, format config.Format) (transformer.Transformer, error) {
 	log := observability.WithTrace(ctx)
 
 	t, ok := r.transformers[format]

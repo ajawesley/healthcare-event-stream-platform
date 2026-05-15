@@ -24,7 +24,12 @@ func NewGuard(client ClientAPI) ComplianceGuard {
 
 func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	stageStart := time.Now()
-	observability.Info(ctx, "compliance guard invoked")
+	log := observability.WithTrace(ctx).With(
+		zap.String("component", "compliance_guard"),
+		zap.String("event_id", evt.EventID),
+	)
+
+	log.Info("compliance_guard_start")
 
 	// -------------------------------------------------------------------------
 	// Validate event
@@ -45,7 +50,7 @@ func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	// Derive entity identifiers
 	// -------------------------------------------------------------------------
 	entityType, entityID := deriveEntity(evt)
-	observability.Info(ctx, "derived entity identifiers",
+	log.Info("derived entity identifiers",
 		zap.String("entity_type", entityType),
 		zap.String("entity_id", entityID),
 	)
@@ -69,7 +74,7 @@ func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 
 	if err != nil {
 		// No rule found anywhere → fallback
-		observability.Warn(ctx, "no compliance rule found (fallback applied)",
+		log.Warn("no compliance rule found (fallback applied)",
 			zap.String("entity_type", entityType),
 			zap.String("entity_id", entityID),
 			zap.Error(err),
@@ -88,7 +93,7 @@ func (g *guard) Apply(ctx context.Context, evt *models.CanonicalEvent) error {
 	// -------------------------------------------------------------------------
 	// Success — apply rule
 	// -------------------------------------------------------------------------
-	observability.Info(ctx, "compliance rule applied",
+	log.Info("compliance rule applied",
 		zap.String("rule_id", rule.ID),
 		zap.String("rule_type", rule.RuleType),
 		zap.Bool("flag", rule.ComplianceFlag),

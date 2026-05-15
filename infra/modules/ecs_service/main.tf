@@ -25,6 +25,11 @@ resource "aws_ecs_task_definition" "this" {
   execution_role_arn = var.task_execution_role_arn
   task_role_arn      = var.task_role_arn
 
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
   container_definitions = jsonencode([
     {
       name      = var.app_name
@@ -41,40 +46,27 @@ resource "aws_ecs_task_definition" "this" {
 
       environment = concat(
         [
+          { name = "REVISION_FORCE", value = "45" },
+
           { name = "S3_BUCKET", value = var.s3_bucket_name },
           { name = "S3_KMS_KEY_ARN", value = var.kms_key_arn },
           { name = "S3_PREFIX", value = var.s3_prefix },
 
-          # -------------------------------
-          # Compliance DB Environment Vars
-          # -------------------------------
           { name = "COMPLIANCE_DB_HOST", value = var.compliance_db_host },
           { name = "COMPLIANCE_DB_PORT", value = tostring(var.compliance_db_port) },
           { name = "COMPLIANCE_DB_NAME", value = var.compliance_db_name },
           { name = "COMPLIANCE_DB_USER", value = var.compliance_db_username },
 
-          # -------------------------------
-          # DynamoDB Compliance Table
-          # -------------------------------
           { name = "DYNAMO_TABLE", value = var.dynamodb_table_name },
 
-          # -------------------------------
-          # Redis Compliance Cache
-          # -------------------------------
-          { name = "REDIS_ADDR", value = "${var.redis_primary_endpoint}:6379" }
-        ],
-        var.enable_adot ? [
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "localhost:4318" },
-          { name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf" },
+          { name = "REDIS_ADDR", value = "${var.redis_primary_endpoint}:6379" },
+
+          # OTEL → ADOT sidecar
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://127.0.0.1:4318" },
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
-          { name = "OTEL_PROPAGATORS", value = "tracecontext,baggage" },
-          { name = "OTEL_TRACES_SAMPLER", value = "parentbased_traceidratio" },
-          { name = "OTEL_TRACES_SAMPLER_ARG", value = "1.0" },
-          {
-            name  = "OTEL_RESOURCE_ATTRIBUTES",
-            value = "service.name=${var.app_name},environment=${var.environment},deployment.environment=${var.environment},source_system=hesp-ecs"
-          }
-        ] : []
+          { name = "OTEL_RESOURCE_ATTRIBUTES", value = "service.name=${var.app_name},service.version=v1.0.0,environment=${var.environment}" }
+        ],
+        []
       )
 
       secrets = [
@@ -94,18 +86,18 @@ resource "aws_ecs_task_definition" "this" {
       }
     },
 
-    # ---------------------------------------------------------
-    # ADOT Collector Sidecar
-    # ---------------------------------------------------------
+    ###############################################################
+    # ADOT Collector Sidecar (ENABLED)
+    ###############################################################
     var.enable_adot ? {
       name      = "adot"
       image     = var.adot_image
       essential = false
 
       portMappings = [
-        { containerPort = 4317, protocol = "tcp" },
-        { containerPort = 4318, protocol = "tcp" },
-        { containerPort = 13133, protocol = "tcp" }
+        { containerPort = 4317, protocol = "tcp" }, # gRPC
+        { containerPort = 4318, protocol = "tcp" }, # HTTP
+        { containerPort = 13133, protocol = "tcp" } # health check
       ]
 
       environment = [
@@ -137,6 +129,8 @@ resource "aws_ecs_service" "this" {
   force_new_deployment = true
   desired_count        = var.desired_count
   launch_type          = "FARGATE"
+
+  enable_execute_command = true
 
   network_configuration {
     subnets          = var.subnet_ids

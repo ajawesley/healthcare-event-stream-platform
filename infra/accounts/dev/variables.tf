@@ -20,4 +20,4 @@ variable "environment" {
 variable "workload_account_id" {
   description = "Workload account ID"
   type        = string
-}   
+}

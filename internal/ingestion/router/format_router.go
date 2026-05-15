@@ -14,6 +14,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/models"
 	"github.com/ajawes/hesp/internal/ingestion/pipeline"
 	"github.com/ajawes/hesp/internal/observability"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -55,6 +56,9 @@ func NewFormatRouter(opts ...Option) *FormatRouter {
 	return r
 }
 
+// -----------------------------------------------------------------------------
+// Setter Methods (KEPT as requested)
+// -----------------------------------------------------------------------------
 func (r *FormatRouter) SetDetector(d detector.Detector) {
 	r.detector = d
 }
@@ -79,9 +83,14 @@ func (r *FormatRouter) SetDispatcher(d dispatcher.Dispatcher) {
 // Route(ctx, raw, env)
 // -----------------------------------------------------------------------------
 func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
+	tr := otel.Tracer("router")
+	ctx, span := tr.Start(ctx, "format_router")
+	defer span.End()
+
 	log := observability.WithTrace(ctx)
 
 	// 0. PRE-SANITIZE
+	_, preSpan := tr.Start(ctx, "router_presanitize")
 	sanitized := pipeline.PreSanitize(raw)
 
 	rawQuoted := strconv.Quote(string(raw))
@@ -99,28 +108,34 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		zap.String("raw", rawQuoted),
 		zap.String("sanitized", sanitizedQuoted),
 	)
+	preSpan.End()
 
 	// 1. DETECT FORMAT
+	detectCtx, detectSpan := tr.Start(ctx, "router_detect")
 	if r.detector == nil {
 		log.Error("detector_undefined_error",
 			zap.String("event_id", env.EventID),
 		)
-		observability.IncrementLineageFailure(ctx, "detect", "detector_not_configured")
+		observability.IncrementLineageFailure(detectCtx, "detect", "detector_not_configured")
+		detectSpan.End()
 		panic(errors.New("no detector configured"))
 	}
-	format := r.detector.Detect(ctx, sanitized)
+	format := r.detector.Detect(detectCtx, sanitized)
 
 	log.Info("router_detect",
 		zap.String("event_id", env.EventID),
 		zap.String("format", string(format)),
 	)
+	detectSpan.End()
 
 	// 2. LOOKUP NORMALIZER
+	normLookupCtx, normLookupSpan := tr.Start(ctx, "router_normalizer_lookup")
 	if r.normalizer == nil {
 		log.Error("normalizer_undefined_error",
 			zap.String("event_id", env.EventID),
 		)
-		observability.IncrementLineageFailure(ctx, "normalize", "normalizer_not_configured")
+		observability.IncrementLineageFailure(normLookupCtx, "normalize", "normalizer_not_configured")
+		normLookupSpan.End()
 		panic(errors.New("no normalizer configured"))
 	}
 
@@ -130,23 +145,27 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "normalize", "normalizer_lookup_failed")
+		observability.IncrementLineageFailure(normLookupCtx, "normalize", "normalizer_lookup_failed")
+		normLookupSpan.End()
 		return nil, fmt.Errorf("normalizer lookup failed: %w", err)
 	}
+	normLookupSpan.End()
 
-	// 3. NORMALIZE (with metrics)
+	// 3. NORMALIZE
+	normCtx, normSpan := tr.Start(ctx, "router_normalize")
 	normStart := time.Now()
-	norm, err := normer.Normalize(ctx, sanitized, env)
+	norm, err := normer.Normalize(normCtx, sanitized, env)
 	normDuration := time.Since(normStart)
 
-	observability.ObserveStageLatency(ctx, "normalize", env.EventType, env.SourceSystem, normDuration)
+	observability.ObserveStageLatency(normCtx, "normalize", env.EventType, env.SourceSystem, normDuration)
 
 	if err != nil {
 		log.Error("router_normalize_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "normalize", "normalization_failed")
+		observability.IncrementLineageFailure(normCtx, "normalize", "normalization_failed")
+		normSpan.End()
 		return nil, fmt.Errorf("normalization failed: %w", err)
 	}
 
@@ -154,39 +173,46 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		zap.String("event_id", env.EventID),
 		zap.Any("normalized", norm),
 	)
+	normSpan.End()
 
 	// 4. LOOKUP TRANSFORMER
+	xformLookupCtx, xformLookupSpan := tr.Start(ctx, "router_transformer_lookup")
 	if r.transformer == nil {
 		log.Error("transformer_undefined_error",
 			zap.String("event_id", env.EventID),
 		)
-		observability.IncrementLineageFailure(ctx, "transform", "transformer_not_configured")
+		observability.IncrementLineageFailure(xformLookupCtx, "transform", "transformer_not_configured")
+		xformLookupSpan.End()
 		panic(errors.New("no transformer configured"))
 	}
 
-	xform, err := r.transformer.TransformerFor(format)
+	xform, err := r.transformer.TransformerFor(xformLookupCtx, format)
 	if err != nil {
 		log.Error("router_transformer_lookup_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "transform", "transformer_lookup_failed")
+		observability.IncrementLineageFailure(xformLookupCtx, "transform", "transformer_lookup_failed")
+		xformLookupSpan.End()
 		return nil, fmt.Errorf("transformer lookup failed: %w", err)
 	}
+	xformLookupSpan.End()
 
-	// 5. TRANSFORM (with metrics)
+	// 5. TRANSFORM
+	xformCtx, xformSpan := tr.Start(ctx, "router_transform")
 	xformStart := time.Now()
-	canon, err := xform.Transform(ctx, norm, env)
+	canon, err := xform.Transform(xformCtx, norm, env)
 	xformDuration := time.Since(xformStart)
 
-	observability.ObserveStageLatency(ctx, "transform", env.EventType, env.SourceSystem, xformDuration)
+	observability.ObserveStageLatency(xformCtx, "transform", env.EventType, env.SourceSystem, xformDuration)
 
 	if err != nil {
 		log.Error("router_transform_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "transform", "transformation_failed")
+		observability.IncrementLineageFailure(xformCtx, "transform", "transformation_failed")
+		xformSpan.End()
 		return nil, fmt.Errorf("transformation failed: %w", err)
 	}
 
@@ -194,34 +220,35 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		zap.String("event_id", env.EventID),
 		zap.Any("canonical", canon),
 	)
+	xformSpan.End()
 
-	// -------------------------------------------------------------------------
-	// 6. ⭐ COMPLIANCE GUARD (NEW FORMAL STAGE)
-	// -------------------------------------------------------------------------
+	// 6. COMPLIANCE GUARD
+	compCtx, compSpan := tr.Start(ctx, "router_compliance")
 	if r.complianceGuard == nil {
 		log.Error("compliance_guard_undefined_error",
 			zap.String("event_id", env.EventID),
 		)
-		observability.IncrementLineageFailure(ctx, "compliance", "compliance_guard_not_configured")
+		observability.IncrementLineageFailure(compCtx, "compliance", "compliance_guard_not_configured")
+		compSpan.End()
 		panic(errors.New("no compliance guard configured"))
 	}
 
 	compStart := time.Now()
-	err = r.complianceGuard.Apply(ctx, canon)
+	err = r.complianceGuard.Apply(compCtx, canon)
 	compDuration := time.Since(compStart)
 
-	observability.ObserveStageLatency(ctx, "compliance", env.EventType, env.SourceSystem, compDuration)
+	observability.ObserveStageLatency(compCtx, "compliance", env.EventType, env.SourceSystem, compDuration)
 
 	if err != nil {
 		log.Error("router_compliance_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "compliance", "compliance_stage_failed")
+		observability.IncrementLineageFailure(compCtx, "compliance", "compliance_stage_failed")
+		compSpan.End()
 		return nil, fmt.Errorf("compliance stage failed: %w", err)
 	}
 
-	// Lineage logging for compliance
 	log.Debug("router_compliance",
 		zap.String("event_id", env.EventID),
 		zap.Bool("compliance_applied", canon.ComplianceApplied),
@@ -230,41 +257,40 @@ func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) 
 		zap.String("compliance_rule_type", canon.ComplianceRuleType),
 		zap.String("compliance_rule_id", canon.ComplianceRuleID),
 	)
+	compSpan.End()
 
-	// 7. DISPATCH (with metrics)
+	// 7. DISPATCH
+	dispatchCtx, dispatchSpan := tr.Start(ctx, "router_dispatch")
 	if r.dispatcher == nil {
 		log.Error("dispatcher_undefined_error",
 			zap.String("event_id", env.EventID),
 		)
-		observability.IncrementLineageFailure(ctx, "dispatch", "dispatcher_not_configured")
+		observability.IncrementLineageFailure(dispatchCtx, "dispatch", "dispatcher_not_configured")
+		dispatchSpan.End()
 		panic(errors.New("no dispatcher configured"))
 	}
 
-	if r.dispatcher == nil {
-		observability.IncrementLineageFailure(ctx, "dispatch", "dispatcher_not_configured")
-		return nil, fmt.Errorf("dispatcher not configured")
-	}
-
 	dispatchStart := time.Now()
-	err = r.dispatcher.Dispatch(ctx, canon, env, sanitized)
+	err = r.dispatcher.Dispatch(dispatchCtx, canon, env, sanitized)
 	dispatchDuration := time.Since(dispatchStart)
 
-	observability.ObserveStageLatency(ctx, "dispatch", env.EventType, env.SourceSystem, dispatchDuration)
+	observability.ObserveStageLatency(dispatchCtx, "dispatch", env.EventType, env.SourceSystem, dispatchDuration)
 
 	if err != nil {
 		log.Error("router_dispatch_error",
 			zap.String("event_id", env.EventID),
 			zap.Error(err),
 		)
-		observability.IncrementLineageFailure(ctx, "dispatch", "dispatch_failed")
+		observability.IncrementLineageFailure(dispatchCtx, "dispatch", "dispatch_failed")
+		dispatchSpan.End()
 		return nil, fmt.Errorf("dispatch failed: %w", err)
 	}
 
 	log.Debug("router_dispatch_success",
 		zap.String("event_id", env.EventID),
 	)
+	dispatchSpan.End()
 
-	// Successful end-to-end lineage event
 	observability.IncrementLineageEvent(ctx, "dispatch", env.SourceSystem, env.EventType)
 
 	return canon, nil

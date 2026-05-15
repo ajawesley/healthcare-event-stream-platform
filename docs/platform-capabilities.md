@@ -3,34 +3,38 @@
 ## 1. Ingestion Capabilities
 
 ### 1.1 Unified Ingestion API
-A single endpoint for all healthcare event types:
+A single, consistent API surface for all healthcare event types. The platform accepts:
 
-
-Supports ingestion of:
 - HL7 v2 messages  
 - FHIR resources  
 - X12 EDI transactions  
-- EHR webhook events  
+- EHR vendor webhook events  
 - Proprietary provider formats  
-- Generic JSON payloads  
+- Generic REST/JSON payloads  
+
+The ingestion layer abstracts protocol differences and provides a uniform entrypoint for all upstream systems and partners.
 
 ### 1.2 Schema Validation & Normalization
-The platform automatically:
-- validates incoming payloads  
-- normalizes them into a canonical event model  
-- extracts identifiers (patient, provider, encounter)  
-- assigns lifecycle states  
-- enforces PHI‑safe transformations  
+The platform performs lightweight validation and normalization to ensure structural consistency:
+
+- envelope validation  
+- canonical event model mapping  
+- extraction of key identifiers (patient, provider, encounter, claim)  
+- lifecycle state assignment  
+- PHI‑safe transformations and metadata tagging  
+
+Normalization enables downstream services to operate on a consistent, predictable schema.
 
 ### 1.3 Sequencing & Correlation
-Events are correlated across:
+Events are correlated across clinical and administrative workflows, including:
+
 - encounters  
 - claims  
 - prior authorizations  
 - lab orders  
 - pharmacy events  
 
-Sequence numbers ensure ordering, replay safety, and lifecycle consistency.
+Sequence numbers and correlation keys ensure ordering, replay safety, and lifecycle consistency across systems.
 
 ---
 
@@ -38,46 +42,54 @@ Sequence numbers ensure ordering, replay safety, and lifecycle consistency.
 
 ### 2.1 PHI Classification
 Automatic detection and tagging of:
+
 - PHI  
 - ePHI  
 - non‑PHI  
 
-Classification metadata is attached to every event.
+Classification metadata is attached to every event and propagated through the pipeline.
 
 ### 2.2 Encryption
+Security controls are enforced by default:
+
 - TLS 1.2+ in transit  
 - AES‑256 at rest  
 - KMS‑managed keys  
 - automatic key rotation  
-- encryption enforced at the platform layer  
+- encryption enforced at the platform boundary  
 
 ### 2.3 Immutable Audit Logging
-Every event ingestion is logged with:
+Every event ingestion produces an immutable audit record capturing:
+
 - who accessed  
 - what was accessed  
 - when  
 - where  
 - transformation lineage  
 
-Audit logs are immutable and tamper‑evident.
+Audit logs are tamper‑evident and retained according to policy.
 
 ### 2.4 Access Control
-Role‑based access enforced via:
+Role‑based access is enforced through:
+
 - service identities  
 - least‑privilege IAM  
 - PHI‑aware authorization boundaries  
+- environment‑scoped access policies  
 
 ### 2.5 Data Minimization & Redaction
 The platform automatically:
+
 - redacts sensitive fields  
-- hashes identifiers  
-- enforces “minimum necessary”  
+- hashes identifiers where appropriate  
+- enforces “minimum necessary” access  
 - prevents accidental PHI leakage  
 
 ### 2.6 Retention & Purging
-Retention policies enforced automatically:
+Retention policies are applied consistently:
+
 - 6‑year HIPAA retention  
-- secure deletion  
+- secure deletion workflows  
 - lineage tracking  
 - audit‑ready metadata  
 
@@ -86,49 +98,61 @@ Retention policies enforced automatically:
 ## 3. Event Processing Capabilities
 
 ### 3.1 Canonical Event Model
-All events normalized into a consistent schema:
+All events are normalized into a consistent, extensible canonical schema that supports:
 
+- clinical workflows  
+- administrative workflows  
+- analytics and ML use cases  
+- lifecycle state transitions  
 
 ### 3.2 Lifecycle Modeling
-Standard lifecycle states for:
+Standard lifecycle states are applied across:
+
 - encounters  
 - claims  
 - prior authorizations  
 - lab orders  
 - pharmacy events  
 
-Lifecycle transitions are validated and sequenced.
+Lifecycle transitions are validated, sequenced, and recorded for downstream consumers.
 
 ### 3.3 Durable Storage
-Raw and canonical events stored in:
+Events and metadata are stored durably in:
+
 - encrypted S3 buckets (raw payloads)  
 - DynamoDB or Aurora (canonical events)  
 - versioned object stores  
 - lineage‑tracked datasets  
+
+This ensures replayability, auditability, and long‑term retention.
 
 ---
 
 ## 4. Consumption Capabilities
 
 ### 4.1 Real‑Time Event Streams
-Developers subscribe to:
+Developers can subscribe to real‑time event streams partitioned by:
 
+- event type  
+- sensitivity level  
+- workflow domain  
 
-Streams are PHI‑aware and partitioned by sensitivity.
+Streams are PHI‑aware and enforce access boundaries.
 
 ### 4.2 Replay API
-Replay historical events safely:
+Historical events can be replayed safely through a controlled API. Replay is:
 
-
-Replay is:
 - PHI‑aware  
 - audited  
 - rate‑limited  
 - lifecycle‑consistent  
 
+Replay enables downstream services to rebuild state or recover from outages.
+
 ### 4.3 Observability
-Developers get:
-- event traces  
+The platform provides:
+
+- distributed traces  
 - lifecycle timelines  
 - error dashboards  
 - ingestion latency metrics  
@@ -142,6 +166,7 @@ Observability is built into the platform, not bolted on.
 
 ### 5.1 Clear Error Semantics
 Errors include:
+
 - actionable messages  
 - remediation guidance  
 - correlation IDs  
@@ -149,18 +174,22 @@ Errors include:
 
 ### 5.2 Golden Path Templates
 The platform provides:
-- ingestion client examples  
+
+- ingestion client templates  
 - event consumer templates  
 - replay client examples  
 - Terraform modules for onboarding  
 
+These patterns accelerate delivery and reduce cognitive load.
+
 ### 5.3 Self‑Service Access
-Developers request:
+Developers can request:
+
 - stream access  
 - replay permissions  
 - ingestion onboarding  
 
-All via platform workflows or automation.
+All through automated workflows or platform APIs.
 
 ---
 
@@ -168,6 +197,7 @@ All via platform workflows or automation.
 
 ### 6.1 Compliance Guarantee
 All events processed through the platform are:
+
 - encrypted  
 - audited  
 - access‑controlled  
@@ -177,6 +207,7 @@ All events processed through the platform are:
 
 ### 6.2 Consistency Guarantee
 All healthcare events follow:
+
 - one canonical schema  
 - one lifecycle model  
 - one ingestion path  
@@ -185,6 +216,7 @@ All healthcare events follow:
 
 ### 6.3 Safety Guarantee
 Developers cannot accidentally:
+
 - leak PHI  
 - store unencrypted data  
 - bypass audit logging  
@@ -192,5 +224,3 @@ Developers cannot accidentally:
 - misclassify data  
 
 The platform prevents unsafe patterns by design.
-
-
