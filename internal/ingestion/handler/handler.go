@@ -56,6 +56,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Info("temporarily recovering from panic",
 				zap.Any("panic", r))
 			p.Set(r)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 	}()
 
