@@ -21,7 +21,7 @@ var (
 // Initialization
 // -----------------------------------------------------------------------------
 
-func NewLogger(svc string, source string) {
+func NewLogger(svc string, source string) *zap.Logger {
 	serviceName = svc
 	sourceSystem = source
 
@@ -58,6 +58,7 @@ func NewLogger(svc string, source string) {
 	}
 
 	logger = l
+	return logger
 }
 
 // -----------------------------------------------------------------------------

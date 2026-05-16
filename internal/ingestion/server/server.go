@@ -21,6 +21,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/handler"
 	"github.com/ajawes/hesp/internal/ingestion/router"
 	"github.com/ajawes/hesp/internal/observability"
+	p "github.com/ajawes/hesp/internal/panic"
 )
 
 // -----------------------------------------------------------------------------
@@ -56,8 +57,6 @@ type Server struct {
 
 type Option func(*Server)
 
-var panicHandler panicError
-
 // global tracer for this package
 var tracer = otel.Tracer("hesp-ecs/server")
 
@@ -90,18 +89,62 @@ func New(opts ...Option) *Server {
 	// Health Endpoints
 	// -------------------------------------------------------------------------
 
-	// Liveness now checks panic state
+	// Liveness Check (Container Health)
+	//
+	// Indicates whether the process is alive and not in a catastrophic state.
+	// This check is intentionally lightweight. It:
+	//   - fails if a panic has been recorded,
+	//   - fails if a global lineage deadlock has been detected.
+	//
+	// If this check fails, the container should be restarted.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
-		if panicHandler.panic != nil {
+		// panic state
+		if r := p.Get(); r != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("panic detected"))
+			_, _ = w.Write([]byte(fmt.Sprintf("panic detected: %v", r)))
 			return
 		}
+
+		// lineage deadlock (no forward progress)
+		if observability.DeadLocked() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("deadlock detected"))
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("alive"))
 	})
 
+	// Readiness Check (Service Health)
+	//
+	// Indicates whether the service is ready to receive ALB traffic.
+	// This check verifies that the service can actually perform work.
+	//
+	// A service is considered "ready" only when:
+	//   - core dependencies (DB, Redis, S3, etc.) are reachable,
+	//   - internal queues/workers are not stalled,
+	//   - lineage is making forward progress (no deadlock),
+	//   - configuration and background initializers have completed,
+	//   - not in panic state.
+	//
+	// If this check fails, the service stays alive but is removed from load balancer
+	// rotation until it becomes ready again.
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		// panic state → not ready
+		if p.Get() != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("panic state"))
+			return
+		}
+
+		// lineage deadlock → not ready
+		if observability.DeadLocked() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("deadlock detected"))
+			return
+		}
+
 		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 		defer cancel()
 
@@ -117,6 +160,10 @@ func New(opts ...Option) *Server {
 		_, _ = w.Write([]byte("ready"))
 	})
 
+	// Health Check (Basic Service Health)
+	//
+	// Confirms the service is functioning at a minimal acceptable level.
+	// This is a lightweight check and does not gate routing decisions.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -144,7 +191,7 @@ func (s *Server) Start() error {
 	s.shutdownFn = shutdownTracing
 
 	// -----------------------------
-	// Readiness: Lineage
+	// Readiness: Lineage (latency / progress observation)
 	// -----------------------------
 	if !isLocal {
 		s.readyChecks = append(s.readyChecks, readyFunc{
@@ -164,9 +211,7 @@ func (s *Server) Start() error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("temporarily recovering from panic %+v", r)
-			if panicHandler.panic == nil {
-				panicHandler.panic = r
-			}
+			p.Set(r)
 		}
 	}()
 
@@ -174,7 +219,7 @@ func (s *Server) Start() error {
 		s.readyChecks = append(s.readyChecks, readyFunc{
 			name: "catastrophe",
 			fn: func(ctx context.Context) bool {
-				return panicHandler.panic == nil
+				return p.Get() == nil
 			},
 		})
 	}
@@ -188,7 +233,7 @@ func (s *Server) Start() error {
 		// -----------------------------------------
 		fmt.Println("⚠️  LOCAL MODE ENABLED — using mock compliance DB + guard")
 
-		s.complianceDB = compliance.NewMockClient() // you already have this pattern
+		s.complianceDB = compliance.NewMockClient()
 		s.complianceGuard = compliance.NewNoopGuard()
 
 	} else {

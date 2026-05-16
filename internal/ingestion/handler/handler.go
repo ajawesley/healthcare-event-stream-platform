@@ -12,6 +12,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/router"
 	"github.com/ajawes/hesp/internal/observability"
+	p "github.com/ajawes/hesp/internal/panic"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -43,14 +44,21 @@ func NewHandler(opts ...HandlerOption) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// ⭐ Create a REAL OTEL span for the request
 	tr := otel.Tracer("ingestion")
 	ctx, span := tr.Start(r.Context(), "ingest_request")
 	defer span.End()
 
 	start := time.Now()
-
 	log := observability.WithTrace(ctx)
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Info("temporarily recovering from panic",
+				zap.Any("panic", r))
+			p.Set(r)
+		}
+	}()
+
 	log.Info("ingest_request_received",
 		zap.String("method", r.Method),
 		zap.String("path", r.URL.Path),
@@ -66,7 +74,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// -------------------------------------------------------------------------
-	// ⭐ NEW: Initialize lineage and mark ingest stage
+	// ⭐ Initialize lineage for this request and mark ingest stage
+	// Lineage is completed in the formatrouter.Route method via defer Complete().
+	// Under the consensus deadlock architecture, Complete() unregisters
+	// the lineage from the global registry.
 	// -------------------------------------------------------------------------
 	var lineage *observability.Lineage
 	lineage, ctx = observability.NewLineage(ctx)
@@ -75,19 +86,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stageStart := time.Now()
 		lineage.MarkStage("ingest")
 
-		// Lineage log
 		observability.Info(ctx, "lineage_stage_ingest",
 			zap.String("event_id", lineage.EventID),
 			zap.String("trace_id", lineage.TraceID),
 			zap.Any("stages", lineage.Stages()),
 		)
 
-		// Lineage metric
 		observability.ObserveLineageLatency(ctx, "ingest", stageStart)
 	}
 	// -------------------------------------------------------------------------
 
-	// --- Read raw body ---
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		observability.Error(ctx, "read_body_failed", err, "read_error", "failed to read request body")
@@ -96,13 +104,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = io.NopCloser(bytes.NewBuffer(rawBody))
 
-	// --- Log preview ---
 	bodyPreview := string(rawBody)
 	log.Info("ingest_body_preview",
 		zap.String("raw_body", strconv.Quote(bodyPreview)),
 	)
 
-	// --- Decode JSON ---
 	var req api.IngestRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
 		observability.Error(ctx, "json_decode_failed", err, "json_error", "failed to decode ingest request")
@@ -110,7 +116,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Decode envelope ---
 	var env api.Envelope
 	if err := json.Unmarshal(req.Envelope, &env); err != nil {
 		observability.Error(ctx, "envelope_decode_failed", err, "envelope_error", "failed to decode envelope",
@@ -124,7 +129,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Validate envelope ---
 	invalid := []string{}
 	if env.EventID == "" {
 		invalid = append(invalid, "envelope.event_id")
@@ -152,14 +156,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Validate payload ---
 	if len(req.Payload) == 0 {
 		observability.Error(ctx, "payload_missing", fmt.Errorf("missing payload"), "payload_error", "payload is empty")
 		http.Error(w, "missing payload", http.StatusBadRequest)
 		return
 	}
 
-	// --- Route ---
 	canonical, err := h.router.Route(ctx, req.Payload, env)
 	if err != nil {
 		observability.Error(ctx, "ingest_rejected", err, "routing_error", "router rejected payload",
@@ -171,7 +173,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Success ---
 	log.Info("ingest_accepted",
 		zap.String("event_id", env.EventID),
 		zap.String("format", string(canonical.Format)),
