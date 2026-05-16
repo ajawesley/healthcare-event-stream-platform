@@ -51,6 +51,9 @@ module "s3_log_archive" {
 
   bucket_name = "${var.org_name}-log-archive"
   tags        = local.base_tags
+
+  # NEW: required for KMS-encrypted log archive bucket
+  kms_key_arn = module.kms_cloudtrail.arn
 }
 
 ############################################
