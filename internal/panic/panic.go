@@ -2,9 +2,10 @@ package panic
 
 import "sync"
 
-const m = &sync.Mutex{}
-
-var panicHandler panicError
+var (
+	m            = &sync.Mutex{}
+	panicHandler panicError
+)
 
 // panicError is an error that wraps a panic value.
 type panicError struct {
@@ -15,9 +16,9 @@ func Set(panic any) any {
 	m.Lock()
 	defer m.Unlock()
 	if panicHandler.panic != nil {
-		return p.panic
+		return panicHandler.panic
 	}
-	p.panic = panic
+	panicHandler.panic = panic
 	return panic
 }
 
