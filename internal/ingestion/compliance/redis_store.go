@@ -2,8 +2,10 @@ package compliance
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ajawes/hesp/internal/observability"
@@ -17,9 +19,14 @@ type RedisStore struct {
 }
 
 func NewRedisStore(addr string, ttl time.Duration) *RedisStore {
+	// Optional AUTH token (ElastiCache auth_token_enabled = true)
+	password := os.Getenv("REDIS_AUTH_TOKEN")
+
 	return &RedisStore{
 		client: redis.NewClient(&redis.Options{
-			Addr: addr,
+			Addr:      addr,
+			Password:  password,      // empty string = no AUTH
+			TLSConfig: &tls.Config{}, // enables TLS for in-transit encryption
 		}),
 		ttl: ttl,
 	}
@@ -34,14 +41,12 @@ func (s *RedisStore) Get(ctx context.Context, entityType, entityID string) (*Rul
 
 	val, err := s.client.Get(ctx, key).Result()
 	if err != nil {
-		// Normal cache miss
 		observability.Debug(ctx, "redis cache miss",
 			zap.String("key", key),
 		)
 		return nil, false
 	}
 
-	// Empty or null values should be treated as cache miss
 	if val == "" || val == "null" || val == "{}" {
 		observability.Warn(ctx, "redis returned empty rule",
 			zap.String("key", key),
@@ -59,7 +64,6 @@ func (s *RedisStore) Get(ctx context.Context, entityType, entityID string) (*Rul
 		return nil, false
 	}
 
-	// Detect zero-value rule (invalid)
 	if r.ID == "" && r.RuleType == "" && !r.ComplianceFlag {
 		observability.Warn(ctx, "redis returned zero-value rule (treating as miss)",
 			zap.String("key", key),
@@ -104,5 +108,5 @@ func (s *RedisStore) Set(ctx context.Context, entityType, entityID string, r *Ru
 }
 
 func (s *RedisStore) Ping(ctx context.Context) error {
-	return s.client.Ping(context.Background()).Err()
+	return s.client.Ping(ctx).Err()
 }

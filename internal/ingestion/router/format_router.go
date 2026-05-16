@@ -56,9 +56,6 @@ func NewFormatRouter(opts ...Option) *FormatRouter {
 	return r
 }
 
-// -----------------------------------------------------------------------------
-// Setter Methods (KEPT as requested)
-// -----------------------------------------------------------------------------
 func (r *FormatRouter) SetDetector(d detector.Detector) {
 	r.detector = d
 }
@@ -79,11 +76,9 @@ func (r *FormatRouter) SetDispatcher(d dispatcher.Dispatcher) {
 	r.dispatcher = d
 }
 
-// -----------------------------------------------------------------------------
-// Route(ctx, raw, env)
-// -----------------------------------------------------------------------------
 func (r *FormatRouter) Route(ctx context.Context, raw []byte, env api.Envelope) (*models.CanonicalEvent, error) {
 	tr := otel.Tracer("router")
+
 	ctx, span := tr.Start(ctx, "format_router")
 	defer span.End()
 

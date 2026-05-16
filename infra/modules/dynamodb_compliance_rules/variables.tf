@@ -21,6 +21,11 @@ variable "pitr_enabled" {
   default     = true
 }
 
+variable "kms_key_arn" {
+  description = "KMS key ARN for DynamoDB SSE-KMS encryption"
+  type        = string
+}
+
 variable "tags" {
   description = "Tags to apply to the table"
   type        = map(string)

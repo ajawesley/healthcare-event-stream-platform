@@ -12,6 +12,7 @@ import (
 	"github.com/ajawes/hesp/internal/ingestion/api"
 	"github.com/ajawes/hesp/internal/ingestion/router"
 	"github.com/ajawes/hesp/internal/observability"
+	"github.com/ajawes/hesp/internal/panic"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -51,6 +52,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	log := observability.WithTrace(ctx)
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("temporarily recovering from panic %+v", r)
+			panic.Set(r)
+		}
+	}()
+
 	log.Info("ingest_request_received",
 		zap.String("method", r.Method),
 		zap.String("path", r.URL.Path),

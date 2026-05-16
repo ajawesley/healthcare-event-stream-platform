@@ -3,23 +3,23 @@
 
 A secure, compliant, healthcare‑grade event streaming and data platform designed to:
 
-- Ingest and validate events  
-- Canonicalize heterogeneous payloads  
-- Enforce compliance (HIPAA + internal policies)  
+- Ingest, validate, and normalize heterogeneous events  
+- Canonicalize payloads into a unified event model  
+- Enforce HIPAA and internal compliance policies  
 - Store data in a governed, KMS‑encrypted data lake  
-- Support analytics, ML, and replay workflows  
-- Provide clean integration surfaces for producers and consumers  
+- Support analytics, ML, replay, and lineage workflows  
+- Provide clean, stable integration surfaces for producers and consumers  
 
 ---
 
-## Repository Structure
+## 📁 Repository Structure
 
 ```
 infra/
-  org-management/        # Org-level: OUs, SCPs, CloudTrail, Config, log archive
+  org-management/                # Org-level: OUs, SCPs, CloudTrail, Config, log archive
   envs/
     dev/
-      main.tf            # Dev environment: VPC, ECS, RDS, Redis, S3, Glue, Config
+      main.tf                    # Dev environment: VPC, ECS, RDS, Redis, S3, Glue, Config
   modules/
     vpc/
     endpoints/
@@ -58,46 +58,51 @@ docs/
 
 ---
 
-## Core Concepts
+## 🧠 Core Concepts
 
 ### **Canonical Event Model**
-All events follow a strict envelope + payload structure.
+All events follow a strict **envelope + payload** structure to ensure consistency across FHIR, HL7, X12, and JSON producers.
 
 ### **Compliance Engine**
-Every event is evaluated against rules stored in DynamoDB, cached in Redis, and persisted in RDS.
+Every event is evaluated against compliance rules stored in DynamoDB, cached in Redis, and persisted in RDS for auditability.
 
-### **Data Lake Layers**
-- Raw (immutable ingestion backup)  
-- Golden (canonical, compliance‑annotated)  
-- Curated (Glue‑generated datasets)  
-- Archive (long‑term, KMS‑encrypted)  
+### **Data Lake Architecture**
+The platform uses a layered, governed data lake:
+
+- **Raw** — Immutable ingestion backup  
+- **Golden** — Canonical, compliance‑annotated events  
+- **Curated** — Glue‑generated analytics datasets  
+- **Archive** — Long‑term, KMS‑encrypted storage  
 
 ### **Replay**
-Deterministic reconstruction from Raw/Golden with compliance re‑evaluation.
+Deterministic reconstruction of events from Raw/Golden with full compliance re‑evaluation.
 
 ---
 
-## Security & Compliance
+## 🔐 Security & Compliance
 
-- KMS encryption everywhere  
+The platform enforces strict enterprise‑grade controls:
+
+- KMS encryption on all data at rest  
 - Deny unencrypted uploads  
-- Public access blocked  
-- Org‑level CloudTrail + Config  
+- Block all public access  
+- Organization‑level CloudTrail + Config  
 - Centralized log archive bucket  
-- Compliance metadata on every event  
+- Compliance metadata attached to every event  
+- Deterministic lineage for audit and replay  
 
 ---
 
-## Deployment
+## 🚀 Deployment
 
-### Org‑level baseline
+### **1. Organization‑Level Baseline**
 ```
 cd infra/org-management
 terraform init
 terraform apply
 ```
 
-### Environment (e.g., dev)
+### **2. Environment Deployment (e.g., dev)**
 ```
 cd infra/envs/dev
 terraform init
@@ -106,30 +111,36 @@ terraform apply
 
 ---
 
-## Integration Guides
+## 📘 Integration Guides
 
-- Developer Onboarding  
-- Producer Integration  
-- Consumer Integration  
-- Lifecycle Model  
-- Compliance Alignment  
-- HIPAA Alignment  
-- Data Lake Architecture  
+Documentation for all platform users:
 
----
+- **Developer Onboarding Guide**  
+- **Producer Integration Guide**  
+- **Consumer Integration Guide**  
+- **Lifecycle Model**  
+- **Compliance Alignment Model**  
+- **HIPAA Alignment**  
+- **Data Lake Architecture**  
 
-## Demo Flow
-
-1. Send event → ALB → ECS  
-2. Show Raw S3 object  
-3. Show Golden S3 object  
-4. Show compliance metadata  
-5. Show Glue crawler + Athena query  
-6. Show org‑level CloudTrail logs in Log Archive  
+All located in the `docs/` directory.
 
 ---
 
-## Status
+## 🎬 Demo Flow (Recommended Walkthrough)
 
-This repo represents a complete, interview‑ready, enterprise‑grade event streaming platform for healthcare workloads.
+1. Send event → ALB → ECS ingestion service  
+2. Inspect Raw S3 object  
+3. Inspect Golden S3 object  
+4. Review compliance metadata  
+5. Run Glue crawler + Athena query  
+6. View org‑level CloudTrail logs in Log Archive  
+
+This demonstrates ingestion, canonicalization, compliance, lineage, and analytics readiness.
+
+---
+
+## 📌 Status
+
+This repository represents a complete, demonstrable, enterprise‑grade event streaming platform tailored for healthcare workloads, with compliance, governance, and observability built in from day one.
 ```

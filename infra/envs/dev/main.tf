@@ -170,8 +170,11 @@ module "compliance_dynamodb" {
   ttl_enabled        = false
   ttl_attribute_name = "expires_at"
 
+  kms_key_arn = aws_kms_key.this.arn
+
   tags = local.base_tags
 }
+
 
 ############################################
 # IAM

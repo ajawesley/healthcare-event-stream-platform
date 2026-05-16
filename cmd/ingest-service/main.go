@@ -14,7 +14,9 @@ func main() {
 	// -----------------------------
 	// Observability (still works locally)
 	// -----------------------------
-	observability.NewLogger("hesp-ecs", "dev")
+	logger := observability.NewLogger("hesp-ecs", "dev")
+	defer logger.Sync()
+
 	observability.InitMetrics("hesp-ecs", "dev")
 
 	srv := server.New()

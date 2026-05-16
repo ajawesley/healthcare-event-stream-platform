@@ -56,8 +56,6 @@ type Server struct {
 
 type Option func(*Server)
 
-var panicHandler panicError
-
 // global tracer for this package
 var tracer = otel.Tracer("hesp-ecs/server")
 
@@ -164,9 +162,7 @@ func (s *Server) Start() error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("temporarily recovering from panic %+v", r)
-			if panicHandler.panic == nil {
-				panicHandler.panic = r
-			}
+			PanicHandler.Set(r)
 		}
 	}()
 
@@ -174,7 +170,7 @@ func (s *Server) Start() error {
 		s.readyChecks = append(s.readyChecks, readyFunc{
 			name: "catastrophe",
 			fn: func(ctx context.Context) bool {
-				return panicHandler.panic == nil
+				return PanicHandler.Get() == nil
 			},
 		})
 	}
