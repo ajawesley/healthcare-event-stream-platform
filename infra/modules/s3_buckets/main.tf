@@ -1,7 +1,11 @@
+############################################
+# Caller Identity
+############################################
+
 data "aws_caller_identity" "current" {}
 
 ############################################
-# Raw Events Bucket
+# RAW EVENTS BUCKET
 ############################################
 
 resource "aws_s3_bucket" "raw" {
@@ -22,15 +26,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "raw" {
 
   rule {
     apply_server_side_encryption_by_default {
-      kms_master_key_id = var.kms_key_arn
       sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "raw" {
-  bucket = aws_s3_bucket.raw.id
-
+  bucket                  = aws_s3_bucket.raw.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -60,7 +63,7 @@ resource "aws_s3_bucket_policy" "raw" {
 }
 
 ############################################
-# Access Logs Bucket
+# ACCESS LOGS BUCKET
 ############################################
 
 resource "aws_s3_bucket" "access_logs" {
@@ -73,22 +76,44 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "access_logs" {
-  bucket = aws_s3_bucket.access_logs.id
-
+  bucket                  = aws_s3_bucket.access_logs.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_policy" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyUnencryptedUploads"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.access_logs.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      }
+    ]
+  })
+}
+
 ############################################
-# CloudTrail + AWS Config Log Archive Bucket
+# LOG ARCHIVE BUCKET (CloudTrail + Config)
 ############################################
 
 resource "aws_s3_bucket" "log_archive" {
@@ -109,14 +134,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "log_archive" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "log_archive" {
-  bucket = aws_s3_bucket.log_archive.id
-
+  bucket                  = aws_s3_bucket.log_archive.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -129,6 +154,22 @@ resource "aws_s3_bucket_policy" "log_archive" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      ############################################
+      # Deny Unencrypted Uploads
+      ############################################
+      {
+        Sid       = "DenyUnencryptedUploads"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.log_archive.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      },
+
       ############################################
       # CloudTrail Permissions
       ############################################
@@ -187,7 +228,7 @@ resource "aws_s3_bucket_policy" "log_archive" {
 }
 
 ############################################
-# Golden Events Bucket
+# GOLDEN EVENTS BUCKET
 ############################################
 
 resource "aws_s3_bucket" "golden" {
@@ -208,15 +249,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "golden" {
 
   rule {
     apply_server_side_encryption_by_default {
-      kms_master_key_id = var.kms_key_arn
       sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "golden" {
-  bucket = aws_s3_bucket.golden.id
-
+  bucket                  = aws_s3_bucket.golden.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -234,7 +274,7 @@ resource "aws_s3_object" "golden_errors_prefix" {
 }
 
 ############################################
-# Glue Script Bucket
+# GLUE SCRIPTS BUCKET
 ############################################
 
 resource "aws_s3_bucket" "scripts" {
@@ -247,16 +287,38 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "scripts" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "scripts" {
-  bucket = aws_s3_bucket.scripts.id
-
+  bucket                  = aws_s3_bucket.scripts.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "scripts" {
+  bucket = aws_s3_bucket.scripts.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyUnencryptedUploads"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.scripts.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      }
+    ]
+  })
 }

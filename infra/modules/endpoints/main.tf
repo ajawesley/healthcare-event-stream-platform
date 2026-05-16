@@ -8,7 +8,7 @@ resource "aws_security_group" "vpce" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "Allow HTTPS from inside VPC"
+    description = "Allow HTTPS from inside VPC CIDR"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -26,6 +26,20 @@ resource "aws_security_group" "vpce" {
   tags = merge(var.tags, {
     Name = "${var.name_prefix}-vpce-sg"
   })
+}
+
+############################################
+# Allow ECS Tasks to Reach VPC Endpoints (NEW)
+############################################
+
+resource "aws_security_group_rule" "vpce_allow_ecs" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.vpce.id
+  source_security_group_id = var.ecs_task_sg_id
+  description              = "Allow ECS tasks to reach VPC interface endpoints"
 }
 
 ############################################
@@ -70,6 +84,8 @@ locals {
     "events",
     "kms",
     "secretsmanager",
+
+    # Required for ECS Exec
     "ssm",
     "ssmmessages",
     "ec2messages"

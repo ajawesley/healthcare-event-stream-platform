@@ -1,126 +1,295 @@
-# HESP HIPAA Alignment Summary
+# AcmeCo Event Stream Platform — HIPAA Alignment Model
 
-**Platform:** Healthcare Event Stream Platform (HESP)  
-**Audience:** Internal Aetna developers, platform engineers, and compliance reviewers  
-**Status:** Canonical reference — do not modify without Platform Architecture and Compliance review  
-**Last reviewed:** 2026-05
-
----
-
-## Purpose
-
-This document maps HESP platform controls to relevant HIPAA Security Rule and Privacy Rule requirements. It is intended to help development teams understand which obligations the platform satisfies on their behalf, and which obligations remain with the producer or consumer service.
-
-This document is a developer-facing alignment summary, not a formal compliance attestation. The authoritative compliance record is maintained by the Aetna Privacy and Security Office.
+**Platform:** AcmeCo Event Stream Platform (ESP)  
+**Audience:** Internal AcmeCo developers, platform engineers, compliance teams  
+**Status:** Canonical reference — do not modify without Platform Architecture review  
+**Last reviewed:** 2026‑05
 
 ---
 
-## Scope
+## Overview
 
-This summary covers events classified as `phi` or `pii` in the HESP envelope `data_classification` field. Events classified as `internal` or `public` are not subject to HIPAA controls, though platform security controls still apply.
+The AcmeCo Event Stream Platform (ESP) is designed to meet or exceed the administrative, technical, and physical safeguards required under the HIPAA Security Rule (45 CFR §164.308, §164.310, §164.312) and the HIPAA Privacy Rule (45 CFR §164.500–534).
 
----
+This document describes how ESP aligns with HIPAA requirements across:
 
-## Control Mapping
+- data classification  
+- encryption  
+- access control  
+- audit logging  
+- retention  
+- data minimization  
+- breach detection and response  
+- compliance metadata  
+- producer and consumer responsibilities  
 
-### Technical Safeguards — 45 CFR §164.312
-
-**Access Control (§164.312(a))**
-
-The platform satisfies this requirement through stream-level ACLs enforced at the routing layer. No consumer can read a PHI or PII stream without an explicit access grant issued by the HESP Access team. Access grants are tied to service identity, not individual credentials, and are reviewed quarterly.
-
-Developer obligation: Request stream access through the HESP Access team before deploying a PHI consumer. Do not share service credentials between systems.
-
-**Audit Controls (§164.312(b))**
-
-Every read and write operation against a PHI or PII event is recorded in the HESP Audit Trail. Audit records are immutable, tamper-evident, and retained for 7 years. The audit trail captures the `event_id`, `source_system` or consuming service identity, operation type, and timestamp.
-
-Developer obligation: None — the platform records audit events automatically. Do not attempt to suppress or filter audit trail output.
-
-**Integrity Controls (§164.312(c))**
-
-Events are written with a cryptographic checksum at ingestion. The platform verifies this checksum at each stage of the lifecycle. Events that fail integrity verification are quarantined and flagged for investigation. The stream offset is monotonically increasing and append-only; events cannot be modified after ingestion.
-
-Developer obligation: Do not attempt to mutate an event after ingestion. To correct an error, produce a new corrective event with a new `event_id` and a `causation_id` referencing the original.
-
-**Transmission Security (§164.312(e))**
-
-All ingestion API endpoints require mutual TLS (mTLS). Plain HTTP connections are rejected at the load balancer. In-transit data is encrypted using TLS 1.2 minimum; TLS 1.3 is recommended and the default for all new service integrations.
-
-Developer obligation: Configure your HTTP client to present a valid client certificate issued by the Aetna Internal CA. Certificates are provisioned through the HESP Onboarding process.
-
-**Encryption at Rest**
-
-All events stored in the HESP stream and archive are encrypted at rest using AES-256 with Aetna-managed keys stored in the enterprise key management service. Key rotation occurs annually or on-demand following a security event.
-
-Developer obligation: PHI field values within the payload must be field-level encrypted by the producer before submission to the ingestion API, using the scheme defined in the PHI Handling Guide. The platform encrypts the full event envelope and payload at rest, but field-level encryption provides an additional layer of protection in the event of a partial platform compromise.
+These protections apply automatically to all events processed through ESP.
 
 ---
 
-### Administrative Safeguards — 45 CFR §164.308
+## HIPAA Safeguard Mapping
 
-**Access Management (§164.308(a)(4))**
+ESP implements safeguards across all three HIPAA categories:
 
-Stream access grants are role-based and follow the principle of least privilege. Grants are scoped to specific `event_type` namespaces and `tenant_id` values. Broad wildcard grants are not issued without explicit approval from the HESP Access team and the Privacy Office.
+### **1. Administrative Safeguards (45 CFR §164.308)**  
+- Access management via stream ACLs  
+- Workforce access provisioning through ESP Access  
+- Security incident procedures  
+- Periodic risk assessments  
+- Policy‑driven retention and archival  
+- Producer onboarding and validation workflows  
 
-Developer obligation: Request only the stream access your service needs. Access requests must include the specific `event_type` patterns and `tenant_id` values required.
+### **2. Physical Safeguards (45 CFR §164.310)**  
+- AWS data center protections (SOC2, ISO 27001, FedRAMP)  
+- No PHI stored on developer workstations  
+- No local caching of PHI in ESP services  
+- All PHI stored only in encrypted AWS services  
 
-**Contingency Plan (§164.308(a)(7))**
-
-HESP is deployed across multiple availability zones with automatic failover. Event data is replicated synchronously before a write is acknowledged. The Cold Archive provides a secondary copy of all PHI events for disaster recovery purposes. Recovery Time Objective (RTO) and Recovery Point Objective (RPO) targets are documented in the HESP Service Level Agreement.
-
-Developer obligation: Design producers and consumers to tolerate transient ingestion API unavailability using retry logic with exponential backoff. Do not assume synchronous end-to-end delivery.
-
-**Evaluation (§164.308(a)(8))**
-
-The HESP platform undergoes annual security review, penetration testing, and HIPAA compliance assessment conducted by the Aetna Security team in coordination with the Privacy Office. Results are shared with platform consumers through the internal security advisory process.
-
----
-
-### Privacy Rule — 45 CFR §164.502 and §164.514
-
-**Minimum Necessary Standard (§164.502(b))**
-
-The `data_classification` and stream ACL model enforces the minimum necessary principle at the platform level. A service processing claims adjudication events cannot read member enrollment events unless it holds a separate access grant for that stream.
-
-Developer obligation: Do not request access to PHI streams beyond what your service's documented purpose requires. Over-broad access grants will be rejected during the access review process.
-
-**De-identification (§164.514(b))**
-
-HESP does not perform automatic de-identification. If a use case requires publishing de-identified data derived from PHI events, the producing service must perform de-identification before constructing the event, and must classify the resulting event as `internal` rather than `phi`.
-
-Developer obligation: Do not submit partially de-identified events as `phi`. Consult the Privacy Office to confirm that your de-identification method satisfies Safe Harbor or Expert Determination standards before reclassifying.
-
-**Right to Deletion**
-
-At the end of the archive retention period, PHI events are cryptographically erased via key destruction rather than byte-level overwrite. This approach satisfies deletion obligations while maintaining the integrity of append-only audit logs.
-
-Developer obligation: If a member exercises a deletion right and your service holds derived data sourced from HESP events, you are responsible for handling deletion of that derived data. The HESP platform handles only the raw event archive.
+### **3. Technical Safeguards (45 CFR §164.312)**  
+- mTLS for ingestion  
+- AES‑256 encryption at rest  
+- IAM least privilege  
+- PHI‑aware routing  
+- Immutable audit logs  
+- Automatic compliance metadata  
+- Retention enforcement  
+- Replay with auditability  
 
 ---
 
-## Platform Obligations vs. Developer Obligations — Quick Reference
+## Data Classification Alignment
 
-| Control area | Platform handles | Developer handles |
+Every event must declare a `data_classification` in the envelope:
+
+- `phi`  
+- `pii`  
+- `internal`  
+- `public`  
+
+The Compliance Engine validates classification and elevates it if misclassified.
+
+### **Classification Enforcement Guarantees**
+
+| Classification | Encryption | Routing | Retention | Access |
+|---|---|---|---|---|
+| `phi` | Required | PHI‑restricted | 7 years | Explicit ACL |
+| `pii` | Required | PII‑restricted | 7 years | Explicit ACL |
+| `internal` | Required | Internal streams | 3 years | Internal ACL |
+| `public` | Optional | Public streams | 90 days | Open |
+
+Misclassification triggers:
+
+- `compliance_flag = true`  
+- retention override to `7y`  
+- routing restricted to PHI‑approved streams  
+
+---
+
+## Encryption Requirements
+
+### **Encryption in Transit (45 CFR §164.312(e))**
+
+All ingestion endpoints require:
+
+- **mTLS (TLS 1.2+)**  
+- client certificate validation  
+- no plaintext HTTP  
+- no weak cipher suites  
+
+Internal service‑to‑service calls also use TLS.
+
+### **Encryption at Rest (45 CFR §164.312(a)(2)(iv))**
+
+All PHI/PII is encrypted using:
+
+- **AES‑256**  
+- **AWS KMS CMKs**  
+- automatic key rotation  
+- envelope encryption for S3, RDS, DynamoDB, Redis  
+
+Producers must encrypt PHI/PII fields inside the payload before sending.
+
+---
+
+## Access Control Alignment
+
+ESP enforces strict access boundaries:
+
+### **Stream ACLs**
+- Consumers must be explicitly granted access to PHI/PII streams.  
+- ACLs are tenant‑scoped and event‑type‑scoped.  
+- No wildcard access for PHI.
+
+### **IAM Least Privilege**
+- Execution roles have only the permissions required for ingestion, routing, and compliance.  
+- Task roles have only the permissions required for reading/writing specific data stores.  
+
+### **Separation of Duties**
+- Producers cannot read streams.  
+- Consumers cannot write to ingestion.  
+- Compliance Engine cannot modify payloads except for masking rules.
+
+---
+
+## Audit Logging & Monitoring
+
+ESP maintains immutable audit logs for:
+
+- ingestion events  
+- compliance rule evaluations  
+- PHI/PII access  
+- consumer reads  
+- replay operations  
+- retention and archival actions  
+- rule changes  
+- ACL changes  
+
+Audit logs are:
+
+- immutable  
+- encrypted  
+- retained for **7 years**  
+- stored in the Log Archive account  
+- accessible only to compliance and security teams  
+
+This satisfies HIPAA §164.312(b) — Audit Controls.
+
+---
+
+## Retention & Archival Alignment
+
+Retention is governed by the envelope’s `retention_policy`, with HIPAA‑aligned defaults:
+
+| Classification | Minimum Retention | Archive Requirement |
 |---|---|---|
-| Encryption in transit | mTLS enforcement at ingestion | Client certificate provisioning |
-| Encryption at rest | AES-256 full-event encryption | Field-level PHI encryption in payload |
-| Access control | Stream ACLs, grant enforcement | Access requests scoped to need |
-| Audit logging | Immutable audit trail, 7-year retention | None |
-| Event integrity | Checksum verification, append-only stream | Corrective events instead of mutations |
-| Retention and archival | Automated per `retention_policy` | Setting the correct `retention_policy` in envelope |
-| De-identification | Not provided | Producer-side, before event construction |
-| Duplicate delivery handling | `event_id` dedup at ingestion | Consumer-side idempotency on `event_id` |
-| Breach notification | Platform-level incident response | Service-level incident reporting to HESP team |
+| PHI | 7 years | Required |
+| PII | 7 years | Required |
+| Internal | 3 years | Optional |
+| Public | 90 days | Optional |
+
+### **Active Stream Retention**
+All events remain on the active stream for **90 days minimum**, regardless of declared policy.
+
+### **Cold Archive**
+After stream retention expires:
+
+- events move to Glacier Deep Archive  
+- access requires explicit approval  
+- retrieval is audited  
+- deletion uses cryptographic erasure  
+
+This satisfies HIPAA §164.530(j) — Documentation Retention.
 
 ---
 
-## Contacts
+## Data Minimization & Masking
 
-| Need | Contact |
-|---|---|
-| Stream access grants | HESP Access team — `#hesp-access` in Slack |
-| PHI handling guidance | Aetna Privacy Office |
-| Security incidents | Aetna Security Operations Center |
-| Platform onboarding | HESP Platform Engineering — `#hesp-platform` in Slack |
-| Compliance questions | `hesp-compliance@aetna.internal` |
+ESP enforces:
+
+- field‑level encryption by producers  
+- optional masking rules via Compliance Engine  
+- removal of unnecessary PHI fields  
+- payload validation to prevent PHI in `internal` or `public` events  
+
+Masking rules may:
+
+- redact sensitive values  
+- hash identifiers  
+- remove unnecessary fields  
+- override routing to PHI‑restricted streams  
+
+---
+
+## Breach Detection & Incident Response
+
+ESP integrates with enterprise monitoring to detect:
+
+- unauthorized access attempts  
+- anomalous read patterns  
+- misrouted PHI  
+- consumer exfiltration attempts  
+- rule evaluation failures  
+
+When a potential breach is detected:
+
+1. Access is automatically restricted.  
+2. Compliance and Security teams are alerted.  
+3. Audit logs are frozen for investigation.  
+4. AcmeCo’s Incident Response Plan is initiated.  
+
+This satisfies HIPAA §164.308(a)(6) — Security Incident Procedures.
+
+---
+
+## Compliance Metadata Alignment
+
+Compliance metadata fields on canonical events provide:
+
+- explicit rule outcomes  
+- auditability  
+- lineage  
+- downstream enforcement signals  
+
+These fields ensure downstream systems can:
+
+- enforce PHI boundaries  
+- apply retention correctly  
+- mask or restrict data  
+- log compliance outcomes  
+
+This satisfies HIPAA’s requirement for **traceability** and **accountability**.
+
+---
+
+## Producer Responsibilities
+
+Producers must:
+
+- classify events correctly  
+- encrypt PHI/PII fields before submission  
+- populate all required envelope fields  
+- avoid sending PHI in `internal` or `public` events  
+- retry ingestion failures safely using `event_id`  
+
+Producers **must not**:
+
+- set `ingested_at`  
+- bypass classification  
+- send unencrypted PHI  
+- embed PHI in metadata fields  
+
+---
+
+## Consumer Responsibilities
+
+Consumers must:
+
+- honor classification  
+- store PHI only in approved systems  
+- implement idempotent processing  
+- avoid speculative acknowledgements  
+- restrict access to authorized users  
+
+Consumers **must not**:
+
+- write PHI to non‑approved stores  
+- exfiltrate PHI outside AcmeCo networks  
+- bypass ACLs  
+- ignore compliance metadata  
+
+---
+
+## Summary
+
+The AcmeCo ESP provides a HIPAA‑aligned foundation for healthcare event ingestion and processing by enforcing:
+
+- encryption  
+- access control  
+- retention  
+- auditability  
+- compliance metadata  
+- classification enforcement  
+- masking and minimization  
+- incident detection  
+
+These guarantees ensure that all events processed through ESP meet or exceed HIPAA requirements across their entire lifecycle.

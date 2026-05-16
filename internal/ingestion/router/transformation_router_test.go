@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ajawes/hesp/internal/config"
@@ -36,7 +37,7 @@ func TestTransformationRouter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := r.TransformerFor(tt.format)
+			_, err := r.TransformerFor(context.Background(), tt.format)
 
 			if tt.expectErr && err == nil {
 				t.Fatalf("expected error, got nil")

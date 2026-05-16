@@ -12,9 +12,9 @@ resource "aws_inspector2_organization_admin_account" "this" {
 
 resource "aws_inspector2_organization_configuration" "this" {
   auto_enable {
-    ec2_scan_enabled     = true
-    ecr_scan_enabled     = true
-    lambda_scan_enabled  = true
+    ec2_scan_enabled    = true
+    ecr_scan_enabled    = true
+    lambda_scan_enabled = true
   }
 
   depends_on = [

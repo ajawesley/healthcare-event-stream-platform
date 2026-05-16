@@ -77,7 +77,7 @@ type fakeTransformationRouter struct {
 	err error
 }
 
-func (r fakeTransformationRouter) TransformerFor(_ config.Format) (transformer.Transformer, error) {
+func (r fakeTransformationRouter) TransformerFor(_ context.Context, _ config.Format) (transformer.Transformer, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
