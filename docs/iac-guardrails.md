@@ -422,7 +422,7 @@ module "ecs_service" {
   assign_public_ip         = false
 
   health_check = {
-    command = ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+    command = ["CMD-SHELL", "curl -f http://localhost:8080/livez || exit 1"]
   }
 }
 ```

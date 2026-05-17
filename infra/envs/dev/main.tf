@@ -23,6 +23,7 @@ locals {
     Environment = var.environment
     Owner       = var.owner
     CostCenter  = var.cost_center
+    phi         = "isolated"
   }
 }
 
