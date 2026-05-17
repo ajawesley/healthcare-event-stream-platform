@@ -133,6 +133,42 @@ validate:
 clean:
         rm -rf $(TF_DIR)/.terraform
 
+################################################################################
+# GLUE REPLAY / REPROCESSING
+################################################################################
+
+# Usage:
+#   make glue-run DATE=2025-01-15
+#   make glue-run PARTITION=raw/2025/01/15
+#   make glue-run FULL=true
+
+glue-run:
+        @echo "Starting Glue replay workflow..."
+        @if [ "$(FULL)" = "true" ]; then \
+            echo "Running full replay of all partitions..."; \
+            aws glue start-job-run \
+                --job-name $(APP_NAME)-$(ENV)-glue-job \
+                --arguments '{"--full-replay":"true"}' \
+                --region $(AWS_REGION); \
+        elif [ -n "$(DATE)" ]; then \
+            echo "Replaying partition for date $(DATE)..."; \
+            aws glue start-job-run \
+                --job-name $(APP_NAME)-$(ENV)-glue-job \
+                --arguments '{"--date":"$(DATE)"}' \
+                --region $(AWS_REGION); \
+        elif [ -n "$(PARTITION)" ]; then \
+            echo "Replaying specific partition $(PARTITION)..."; \
+            aws glue start-job-run \
+                --job-name $(APP_NAME)-$(ENV)-glue-job \
+                --arguments '{"--partition":"$(PARTITION)"}' \
+                --region $(AWS_REGION); \
+        else \
+            echo "ERROR: Must specify DATE=YYYY-MM-DD, PARTITION=..., or FULL=true"; \
+            exit 1; \
+        fi
+        @echo "Glue replay initiated successfully."
+
+
 
 ################################################################################
 # HEALTH CHECKS (No-Op / Always Succeed)
