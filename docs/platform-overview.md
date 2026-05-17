@@ -113,9 +113,10 @@ The landing zone includes:
 - Inspector vulnerability scanning  
 - SCPs and IAM permission boundaries  
 
-These controls ensure compliance with HIPAA, SOC2, and enterprise security policies.
+### 5.3 Container Scanning (Inspector2)
+Inspector2 is enabled at the organization level and automatically scans all ECR container images for vulnerabilities. Images are scanned on push, on pull, and continuously as new CVEs are published. While the CI/CD pipeline does not currently gate deployments based on Inspector findings, the platform benefits from continuous, org‑wide container vulnerability monitoring. This provides a strong detective control layer and complements the preventive governance baseline.
 
-### 5.3 Immutable Audit & Lineage
+### 5.4 Immutable Audit & Lineage
 Every event is:
 
 - logged  
@@ -170,4 +171,4 @@ Developers focus on business logic, not healthcare plumbing.
 - Stronger compliance posture with automated safeguards  
 - Consistent lifecycle and canonical modeling across systems  
 - Scalable data lake architecture for analytics and ML  
-- A reusable platform foundation for future enterprise initiatives  
+- A reusable platform foundation for future enterprise initiatives

@@ -70,12 +70,12 @@ The Compliance Engine validates classification and elevates it if misclassified.
 
 ### **Classification Enforcement Guarantees**
 
-| Classification | Encryption | Routing | Retention | Access |
-|---|---|---|---|---|
-| `phi` | Required | PHI‑restricted | 7 years | Explicit ACL |
-| `pii` | Required | PII‑restricted | 7 years | Explicit ACL |
-| `internal` | Required | Internal streams | 3 years | Internal ACL |
-| `public` | Optional | Public streams | 90 days | Open |
+| Classification | Encryption | Routing          | Retention | Access       |
+|----------------|------------|------------------|-----------|--------------|
+| `phi`          | Required   | PHI‑restricted   | 7 years   | Explicit ACL |
+| `pii`          | Required   | PII‑restricted   | 7 years   | Explicit ACL |
+| `internal`     | Required   | Internal streams | 3 years   | Internal ACL |
+| `public`       | Optional   | Public streams   | 90 days   | Open         |
 
 Misclassification triggers:
 
@@ -161,11 +161,11 @@ This satisfies HIPAA §164.312(b) — Audit Controls.
 Retention is governed by the envelope’s `retention_policy`, with HIPAA‑aligned defaults:
 
 | Classification | Minimum Retention | Archive Requirement |
-|---|---|---|
-| PHI | 7 years | Required |
-| PII | 7 years | Required |
-| Internal | 3 years | Optional |
-| Public | 90 days | Optional |
+|--- ------------|---------|----------|
+| PHI            | 7 years | Required |
+| PII            | 7 years | Required |
+| Internal       | 3 years | Optional |
+| Public         | 90 days | Optional |
 
 ### **Active Stream Retention**
 All events remain on the active stream for **90 days minimum**, regardless of declared policy.

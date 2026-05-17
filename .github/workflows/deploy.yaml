@@ -114,5 +114,72 @@ jobs:
       - name: ECS Restart
         run: make ecs-restart ENV=${{ env.ENV }}
 
+      ############################################
+      # Post-Deployment Health Verification
+      ############################################
+      - name: Run Health Checks
+        id: health
+        run: |
+          set -e
+
+          echo "Checking Lambda health..."
+          make lambda-health ENV=${{ env.ENV }}
+
+          echo "Checking ECS service health..."
+          make ecs-health ENV=${{ env.ENV }}
+
+          echo "Checking SQS queue depth..."
+          make sqs-health ENV=${{ env.ENV }}
+
+          echo "Checking Glue job readiness..."
+          make glue-health ENV=${{ env.ENV }}
+
+          echo "Checking S3 latency..."
+          make s3-latency-check ENV=${{ env.ENV }}
+
+          echo "Checking dependency SLOs..."
+          make dependency-slo-check ENV=${{ env.ENV }}
+
+      - name: Fail if Health Checks Failed
+        if: failure()
+        run: exit 1
+
       - name: Cleanup Lambda Artifacts
         run: make lambda-clean
+
+  ############################################
+  # Automated Rollback
+  ############################################
+  rollback:
+    name: Automated Rollback
+    runs-on: ubuntu-latest
+    needs: deploy-app
+    if: ${{ needs.deploy-app.result == 'failure' }}
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (Workloads Account)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<WORKLOADS_ACCOUNT_ID>:role/github-oidc-${{ env.ENV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback Terraform
+        run: make tf-rollback ENV=${{ env.ENV }}
+
+      - name: Rollback ECS Service
+        run: make ecs-rollback ENV=${{ env.ENV }}
+
+      - name: Rollback Lambda Version
+        run: make lambda-rollback ENV=${{ env.ENV }}
+
+      - name: Rollback Glue Job
+        run: make glue-rollback ENV=${{ env.ENV }}
+
+      - name: Notify Slack
+        run: make notify-rollback ENV=${{ env.ENV }}
