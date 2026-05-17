@@ -13,7 +13,7 @@ The IaC model ensures that every environment is secure, reproducible, and aligne
 
 ```mermaid
 flowchart TD
-    ROOT[Root Stacks<br/>envs/dev, accounts/dev, org-management]
+    ROOT[Root Stacks<br/>envs/dev, accounts/dev, org-management, security-admin]
 
     subgraph LZ[Landing Zone]
         ORG[Org Baseline<br/>SCPs, OUs, IAM Boundaries]
