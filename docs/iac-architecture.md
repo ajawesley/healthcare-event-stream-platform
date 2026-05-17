@@ -1,5 +1,3 @@
----
-
 # Healthcare Event Stream Platform — IaC Architecture
 
 ## 1. Purpose
@@ -10,109 +8,340 @@ The IaC model ensures that every environment is secure, reproducible, and aligne
 ---
 
 ## 2. Terraform Architecture Overview
-The IaC architecture is organized into four major module groups:
 
-### **2.1 Core Landing Zone Modules**
-These modules establish the secure network and encryption foundation:
+### 2.1 High‑Level IaC Architecture Diagram
 
-- VPC (public, private, isolated subnets)  
-- Route tables and NAT gateways  
-- Security groups  
-- VPC endpoints (S3, STS, SSM, ECR, Logs, Secrets Manager)  
-- KMS keys for encryption  
+```mermaid
+flowchart TD
+    ROOT[Root Stacks<br/>envs/dev, accounts/dev, org-management]
 
-### **2.2 Governance & Security Modules**
-These modules enforce enterprise and HIPAA‑aligned governance:
+    subgraph LZ[Landing Zone]
+        ORG[Org Baseline<br/>SCPs, OUs, IAM Boundaries]
+        LOGGING[Centralized Logging<br/>Log Archive, Access Logs]
+        SECURITY[Security Services<br/>GuardDuty, SecurityHub, Inspector]
+        CONFIG[AWS Config + Aggregators]
+    end
 
-- AWS Config  
-- CloudTrail  
-- Security Hub  
-- GuardDuty  
-- Inspector  
-- Service Control Policies (SCPs)  
-- IAM permission boundaries  
-- Log archive S3 bucket  
+    subgraph NETWORK[Core Networking]
+        VPC[VPC Module<br/>Subnets, Routes, NAT]
+        ENDPOINTS[VPC Endpoints<br/>S3, STS, SSM, ECR, Logs]
+        SG[Security Groups]
+        KMS[KMS Keys]
+    end
 
-### **2.3 Data Plane Modules**
-These modules provide durable, compliant storage:
+    subgraph DATA[Data Plane]
+        S3_RAW[Raw S3 Bucket]
+        S3_CURATED[Curated S3 Bucket]
+        RDS[RDS PostgreSQL]
+        DDB[DynamoDB Rules]
+        REDIS[Redis Compliance Cache]
+    end
 
-- Raw S3 bucket (unmodified payloads)  
-- Curated S3 bucket (normalized and enriched datasets)  
-- RDS PostgreSQL (compliance metadata)  
-- DynamoDB (rules and configuration)  
-- Redis (low‑latency rule caching)  
+    subgraph RUNTIME[Application Runtime]
+        ECS_CLUSTER[ECS Cluster]
+        ECS_SERVICE[ECS Services<br/>Ingest + Compliance]
+        LAMBDA[Lambda Triggers]
+        GLUE[Glue Jobs + Crawlers]
+        IAM_ROLES[IAM Roles]
+    end
 
-### **2.4 Application Runtime Modules**
-These modules deploy the ingestion and compliance services:
+    ROOT --> LZ
+    ROOT --> NETWORK
+    ROOT --> DATA
+    ROOT --> RUNTIME
 
-- ECS cluster (Fargate)  
-- ECS services (ingestion, compliance engine, ADOT collector)  
-- IAM execution roles  
-- IAM task roles  
+    NETWORK --> RUNTIME
+    NETWORK --> DATA
+    LZ --> NETWORK
+    LZ --> DATA
+    LZ --> RUNTIME
+
+    RUNTIME --> S3_RAW
+    RUNTIME --> S3_CURATED
+    RUNTIME --> RDS
+    RUNTIME --> DDB
+    RUNTIME --> REDIS
+```
 
 ---
 
-## 3. Module Responsibilities
+## 3. Module Overviews & Guardrails
 
-### **3.1 Core Landing Zone Modules**
-Provide the foundational network and encryption controls:
-
-- segmented subnets for PHI isolation  
-- least‑privilege security groups  
-- private access to AWS services  
-- KMS‑encrypted data stores  
-
-These modules ensure PHI never leaves the controlled network boundary.
+This section explains **what each module does**, **why it exists**, and **which guardrails it enforces**.  
+This is the “developer‑facing map” of the IaC system.
 
 ---
 
-### **3.2 Governance & Security Modules**
-Provide continuous compliance and auditability:
+### 3.1 Core Landing Zone Modules
 
-- configuration drift detection  
+#### **VPC Module**
+**Purpose:**  
+Creates the network foundation for all workloads.
+
+**Provides:**  
+- public, private, isolated subnets  
+- NAT gateways  
+- route tables  
+- subnet tagging for EKS/ECS/Lambda compatibility  
+
+**Guardrails:**  
+- PHI isolation via private subnets  
+- no public IP assignment  
+- VPC Flow Logs enabled (paved road)  
+- restricted default SG  
+
+**Paved Road:**  
+All workloads must deploy into **private subnets** and use **VPC endpoints** for AWS APIs.
+
+---
+
+#### **VPC Endpoints Module**
+**Purpose:**  
+Private connectivity to AWS services.
+
+**Provides:**  
+- S3, STS, SSM, ECR, Logs, Secrets Manager endpoints  
+- endpoint security groups  
+
+**Guardrails:**  
+- no internet egress required  
+- PHI never leaves AWS backbone  
+- SGs restrict inbound/outbound traffic  
+
+**Paved Road:**  
+All ECS, Lambda, and Glue workloads must use endpoints for AWS API calls.
+
+---
+
+#### **Security Groups Module**
+**Purpose:**  
+Defines least‑privilege network boundaries.
+
+**Guardrails:**  
+- no 0.0.0.0/0 ingress  
+- restricted egress  
+- mandatory SG descriptions  
+- PHI‑aware segmentation  
+
+**Paved Road:**  
+Workloads must use module‑provided SGs rather than creating their own.
+
+---
+
+#### **KMS Module**
+**Purpose:**  
+Centralized encryption for all data stores.
+
+**Guardrails:**  
+- CMK rotation enabled  
+- no wildcard principals  
+- enforced encryption for S3, RDS, DynamoDB, Lambda, CloudWatch  
+
+**Paved Road:**  
+All modules accept a `kms_key_id` input and must use it.
+
+---
+
+### 3.2 Governance & Security Modules
+
+#### **AWS Config Module**
+**Purpose:**  
+Detects drift and enforces configuration rules.
+
+**Guardrails:**  
+- required tags  
+- encryption required  
+- public access blocked  
+- IAM least privilege  
+
+**Paved Road:**  
+All resources must be compliant with Config rules before deployment.
+
+---
+
+#### **CloudTrail Module**
+**Purpose:**  
+Captures all API activity.
+
+**Guardrails:**  
 - immutable audit logs  
-- consolidated security posture  
-- threat detection  
-- vulnerability scanning  
-- enforced least privilege  
-- long‑term log retention  
+- centralized log archive  
+- multi‑region trails  
 
-These controls apply uniformly across all workloads.
+**Paved Road:**  
+All accounts forward CloudTrail to the org‑level log archive.
 
 ---
 
-### **3.3 Data Plane Modules**
-Provide durable, compliant, replay‑safe storage:
+#### **Security Hub Module**
+**Purpose:**  
+Centralized security posture management.
 
-- raw payload retention  
-- curated datasets for downstream consumers  
-- lifecycle and compliance metadata  
-- rule evaluation and caching  
+**Guardrails:**  
+- CIS AWS Foundations  
+- PCI DSS  
+- HIPAA Security Rule  
 
-All data stores are encrypted, isolated, and access‑controlled.
+**Paved Road:**  
+All accounts auto‑enroll and forward findings to the admin account.
 
 ---
 
-### **3.4 Application Runtime Modules**
-Provide the compute and runtime environment:
+#### **GuardDuty Module**
+**Purpose:**  
+Threat detection and anomaly monitoring.
 
-- ingestion service  
-- compliance engine  
-- ADOT collector for traces and metrics  
-- IAM roles for scoped access  
+**Guardrails:**  
+- organization‑wide GuardDuty  
+- S3 protection  
+- EKS/ECS runtime monitoring  
 
-The runtime layer is fully observable and supports safe deployment patterns.
+---
+
+#### **Inspector Module**
+**Purpose:**  
+Vulnerability scanning for workloads.
+
+**Guardrails:**  
+- EC2 scanning  
+- Lambda scanning  
+- ECR image scanning  
+
+---
+
+#### **SCP Baseline Module**
+**Purpose:**  
+Organization‑wide guardrails.
+
+**Guardrails:**  
+- deny public S3  
+- deny IAM wildcard  
+- deny unencrypted resources  
+- deny internet‑facing RDS  
+- deny disabling CloudTrail/Config  
+
+**Paved Road:**  
+Workloads must operate within SCP boundaries.
+
+---
+
+### 3.3 Data Plane Modules
+
+#### **S3 Buckets Module**
+**Purpose:**  
+Durable storage for raw and curated events.
+
+**Guardrails:**  
+- versioning  
+- encryption  
+- block public access  
+- lifecycle policies  
+- access logging  
+- replication (optional)  
+
+**Paved Road:**  
+All ingestion workloads write to the **raw** bucket;  
+all compliance workloads write to the **curated** bucket.
+
+---
+
+#### **RDS PostgreSQL Module**
+**Purpose:**  
+Stores compliance metadata and lineage.
+
+**Guardrails:**  
+- encryption at rest  
+- encryption in transit  
+- IAM auth  
+- deletion protection  
+- multi‑AZ  
+- performance insights  
+- enhanced monitoring  
+
+---
+
+#### **DynamoDB Compliance Rules Module**
+**Purpose:**  
+Stores rule definitions and evaluation metadata.
+
+**Guardrails:**  
+- PITR enabled  
+- CMK encryption  
+- no public access  
+
+---
+
+#### **Redis Compliance Cache Module**
+**Purpose:**  
+Low‑latency rule evaluation cache.
+
+**Guardrails:**  
+- encryption at rest  
+- encryption in transit  
+- auth token required  
+- subnet isolation  
+
+---
+
+### 3.4 Application Runtime Modules
+
+#### **ECS Cluster Module**
+**Purpose:**  
+Runs ingestion and compliance services.
+
+**Guardrails:**  
+- Fargate only  
+- no public IPs  
+- exec logging enabled  
+- container insights enabled  
+
+---
+
+#### **ECS Service Module**
+**Purpose:**  
+Deploys ingestion + compliance workloads.
+
+**Guardrails:**  
+- read‑only root FS  
+- non‑privileged containers  
+- health checks required  
+- HTTPS‑only ALB  
+- no host networking  
+
+---
+
+#### **Lambda Trigger Module**
+**Purpose:**  
+Event‑driven ingestion and replay triggers.
+
+**Guardrails:**  
+- VPC‑only  
+- DLQ required  
+- env var encryption  
+- concurrency limits  
+- code signing  
+
+---
+
+#### **Glue Job & Crawler Modules**
+**Purpose:**  
+Schema discovery and batch transformations.
+
+**Guardrails:**  
+- Glue security configuration required  
+- CMK encryption  
+- CloudWatch log encryption  
 
 ---
 
 ## 4. CI/CD Workflow & Deployment Safety
 
-### **4.1 Workflow Overview**
+### 4.1 Workflow Overview
 The CI/CD pipeline performs:
 
 1. static validation (fmt, validate, lint)  
 2. Terraform plan with drift detection  
-3. policy checks (SCP + permission boundaries)  
+3. policy checks (OPA, Checkov, Sentinel)  
 4. controlled apply  
 5. post‑deployment verification (health checks + SLO checks)  
 
@@ -120,7 +349,7 @@ All changes are version‑controlled and auditable.
 
 ---
 
-### **4.2 Safe Deployment Controls**
+### 4.2 Safe Deployment Controls
 The platform enforces:
 
 - rolling or blue/green deployments  
@@ -133,7 +362,7 @@ Deployments cannot progress if any gate fails.
 
 ---
 
-### **4.3 Automated Rollback**
+### 4.3 Automated Rollback
 Rollback is triggered automatically when:
 
 - error rates exceed thresholds  
@@ -146,7 +375,7 @@ Rollback protects PHI integrity and minimizes blast radius.
 
 ---
 
-### **4.4 Immutable Infrastructure**
+### 4.4 Immutable Infrastructure
 All infrastructure is:
 
 - declarative  
@@ -160,7 +389,7 @@ No manual changes are permitted in production environments.
 
 ## 5. Developer Reuse & Extensibility
 
-### **5.1 Reusable Modules**
+### 5.1 Reusable Modules
 Teams can reuse modules for:
 
 - new ingestion services  
@@ -173,7 +402,7 @@ Modules enforce consistent patterns and governance.
 
 ---
 
-### **5.2 Environment Parity**
+### 5.2 Environment Parity
 The same IaC stack deploys:
 
 - dev  
@@ -184,7 +413,7 @@ This ensures consistent behavior across environments.
 
 ---
 
-### **5.3 Extensible Architecture**
+### 5.3 Extensible Architecture
 New capabilities can be added by:
 
 - composing existing modules  
@@ -204,5 +433,3 @@ The IaC model supports long‑term platform evolution.
 - consistent environments across the enterprise  
 - strong PHI boundaries and auditability  
 - scalable foundation for future healthcare workloads  
-
----
