@@ -51,6 +51,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	log := observability.WithTrace(ctx)
 
+	log.Info("debug_path", zap.String("path", r.URL.Path))
+
 	defer func() {
 		if r := recover(); r != nil {
 			log.Info("temporarily recovering from panic",

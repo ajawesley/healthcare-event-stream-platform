@@ -82,6 +82,9 @@ module "s3_buckets" {
   script_bucket_name      = "${var.app_name}-${var.environment}-glue-scripts-001"
   access_logs_bucket_name = "${var.app_name}-${var.environment}-access-logs-001"
 
+  lambda_arn  = module.lambda_trigger.lambda_arn
+  lambda_name = module.lambda_trigger.lambda_name
+
   # Centralized log archive bucket (AWS Config, CloudTrail, GuardDuty)
   log_archive_bucket_name = var.log_archive_bucket_name
 

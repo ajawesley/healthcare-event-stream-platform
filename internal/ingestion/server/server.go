@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 
 	"github.com/ajawes/hesp/internal/config"
@@ -77,35 +78,29 @@ func New(opts ...Option) *Server {
 
 	mux := http.NewServeMux()
 
-	// Base ingestion router (guard injected later)
+	// Base ingestion router
 	s.router = router.NewFormatRouter()
 
 	ingestHandler := handler.NewHandler(
 		handler.WithRouter(s.router),
 	)
-	mux.Handle("/events/ingest", ingestHandler)
+
+	// ⭐ Wrap ingest handler with OpenTelemetry
+	mux.Handle("/events/ingest",
+		otelhttp.NewHandler(ingestHandler, "events.ingest"),
+	)
 
 	// -------------------------------------------------------------------------
 	// Health Endpoints
 	// -------------------------------------------------------------------------
 
-	// Liveness Check (Container Health)
-	//
-	// Indicates whether the process is alive and not in a catastrophic state.
-	// This check is intentionally lightweight. It:
-	//   - fails if a panic has been recorded,
-	//   - fails if a global lineage deadlock has been detected.
-	//
-	// If this check fails, the container should be restarted.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
-		// panic state
 		if r := p.Get(); r != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(fmt.Sprintf("panic detected: %v", r)))
 			return
 		}
 
-		// lineage deadlock (no forward progress)
 		if observability.DeadLocked() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("deadlock detected"))
@@ -116,29 +111,13 @@ func New(opts ...Option) *Server {
 		_, _ = w.Write([]byte("alive"))
 	})
 
-	// Readiness Check (Service Health)
-	//
-	// Indicates whether the service is ready to receive ALB traffic.
-	// This check verifies that the service can actually perform work.
-	//
-	// A service is considered "ready" only when:
-	//   - core dependencies (DB, Redis, S3, etc.) are reachable,
-	//   - internal queues/workers are not stalled,
-	//   - lineage is making forward progress (no deadlock),
-	//   - configuration and background initializers have completed,
-	//   - not in panic state.
-	//
-	// If this check fails, the service stays alive but is removed from load balancer
-	// rotation until it becomes ready again.
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// panic state → not ready
 		if p.Get() != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("panic state"))
 			return
 		}
 
-		// lineage deadlock → not ready
 		if observability.DeadLocked() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("deadlock detected"))
@@ -160,10 +139,6 @@ func New(opts ...Option) *Server {
 		_, _ = w.Write([]byte("ready"))
 	})
 
-	// Health Check (Basic Service Health)
-	//
-	// Confirms the service is functioning at a minimal acceptable level.
-	// This is a lightweight check and does not gate routing decisions.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -178,20 +153,10 @@ func New(opts ...Option) *Server {
 }
 
 func (s *Server) Start() error {
-	// -----------------------------
-	// Detect Local Mode
-	// -----------------------------
 	isLocal := config.GetEnv("LOCAL_MODE", "") == "true"
 
-	shutdownTracing := observability.InitTracing(
-		"hesp-ecs",
-		"v1.0.0",
-		"dev",
-	)
-	s.shutdownFn = shutdownTracing
-
 	// -----------------------------
-	// Readiness: Lineage (latency / progress observation)
+	// Readiness: Lineage
 	// -----------------------------
 	if !isLocal {
 		s.readyChecks = append(s.readyChecks, readyFunc{
@@ -228,18 +193,12 @@ func (s *Server) Start() error {
 	// Build Compliance Subsystem
 	// -----------------------------
 	if isLocal {
-		// -----------------------------------------
-		// LOCAL MODE: No AWS, No DB, No Redis
-		// -----------------------------------------
 		fmt.Println("⚠️  LOCAL MODE ENABLED — using mock compliance DB + guard")
 
 		s.complianceDB = compliance.NewMockClient()
 		s.complianceGuard = compliance.NewNoopGuard()
 
 	} else {
-		// -----------------------------------------
-		// NORMAL MODE (AWS + DB)
-		// -----------------------------------------
 		if s.complianceDB == nil {
 			rawPassword := config.GetEnv("COMPLIANCE_DB_PASSWORD", "")
 			escapedPassword := url.QueryEscape(rawPassword)
@@ -278,7 +237,6 @@ func (s *Server) Start() error {
 
 			log.Printf("created compliance DB %+v", s.complianceDB)
 
-			// Readiness checks
 			s.readyChecks = append(s.readyChecks, readyFunc{
 				name: "postgres",
 				fn: func(ctx context.Context) bool {
@@ -361,9 +319,12 @@ func (s *Server) Start() error {
 	}
 
 	// -----------------------------
-	// Observability Middleware
+	// Observability Middleware + Tracing
 	// -----------------------------
-	s.httpServer.Handler = observability.ObservabilityMiddleware(s.httpServer.Handler)
+	s.httpServer.Handler = otelhttp.NewHandler(
+		observability.ObservabilityMiddleware(s.httpServer.Handler),
+		"http.server",
+	)
 
 	log.Printf("starting server on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()

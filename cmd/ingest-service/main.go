@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -12,13 +13,18 @@ import (
 
 func main() {
 	// -----------------------------
-	// Observability (still works locally)
+	// Observability
 	// -----------------------------
 	logger := observability.NewLogger("hesp-ecs", "dev")
 	defer logger.Sync()
 
 	observability.InitMetrics("hesp-ecs", "dev")
 
+	// ⭐ Initialize tracing BEFORE creating the server
+	shutdownTracing := observability.InitTracing("hesp-ecs", "v1.0.0", "dev")
+	defer shutdownTracing(context.Background())
+
+	// Now the server, router, handlers, dispatcher all see a real tracer
 	srv := server.New()
 
 	// graceful shutdown
