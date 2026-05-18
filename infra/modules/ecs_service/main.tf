@@ -62,7 +62,7 @@ resource "aws_ecs_task_definition" "this" {
           { name = "REDIS_ADDR", value = "${var.redis_primary_endpoint}:6379" },
 
           # OTEL → ADOT sidecar
-          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://127.0.0.1:4318" },
+          { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "localhost:4317" },
           { name = "OTEL_SERVICE_NAME", value = var.app_name },
           { name = "OTEL_RESOURCE_ATTRIBUTES", value = "service.name=${var.app_name},service.version=v1.0.0,environment=${var.environment}" }
         ],

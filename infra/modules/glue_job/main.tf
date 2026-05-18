@@ -40,6 +40,7 @@ resource "aws_glue_job" "this" {
     "--enable-continuous-cloudwatch-log" = "true"
     "--continuous-log-logGroup"          = var.log_group_name
     "--job-language"                     = "python"
+    "--enable-metrics"                   = "true"
     "--extra-py-files"                   = "s3://${var.script_bucket}/scripts/lib/job_lib.zip"
 
     # STATIC ONLY — Lambda overrides input_path at runtime

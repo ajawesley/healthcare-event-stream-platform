@@ -18,6 +18,7 @@ This guide provides new developers with the essential knowledge required to buil
 - compliance and security expectations  
 - testing and validation workflows  
 - operational readiness  
+- platform‑as‑a‑product patterns and reusable components
 
 This guide is required reading for all engineers onboarding to ESP.
 
@@ -47,7 +48,206 @@ Events are retained for 90 days on the active stream and 1–7 years in the arch
 
 ---
 
-## Development Environment Setup
+# Platform as a Product  
+### **How to Reuse Platform Patterns Instead of Re‑Inventing Them**
+
+ESP is built as a **product**, not a collection of scripts.  
+Teams must **consume** platform capabilities rather than rebuild them.
+
+Below are the reusable patterns, libraries, modules, and workflows that every team must adopt.
+
+---
+
+# 🔧 Go Application Patterns (Shared Libraries)
+
+ESP provides a set of Go modules that standardize service behavior across the platform.
+
+### **1. Probes Framework (Liveness + Readiness)**  
+All Go services must use the shared `probes` package.
+
+Benefits:
+- consistent `/healthz` and `/readyz` endpoints  
+- pluggable readiness checks (DB, Kafka, S3, schema registry)  
+- automatic integration with Kubernetes  
+- zero custom boilerplate  
+
+Example readiness extension:
+```go
+probes.RegisterReadinessCheck("kafka", kafkaClient.Ready)
+```
+
+### **2. Resiliency Module**
+All services must use the shared resiliency library, which provides:
+
+- exponential backoff  
+- circuit breakers  
+- retry policies  
+- timeouts  
+- context propagation  
+- structured error wrapping  
+
+### **3. Logging + Tracing**
+All services must use the platform logging module:
+
+- structured JSON logs  
+- correlation IDs  
+- event_id propagation  
+- OpenTelemetry tracing  
+- PHI‑safe logging enforcement  
+
+### **4. Configuration Pattern**
+All services use the shared config loader:
+
+- environment‑first  
+- typed config structs  
+- validation on startup  
+- secrets pulled from AWS Secrets Manager  
+
+---
+
+# 🏗 Terraform Patterns (Infrastructure as Product)
+
+ESP provides a set of Terraform modules that developers must reuse:
+
+### **1. VPC Module**
+- public, private, isolated subnets  
+- NAT gateways per AZ  
+- VPC endpoints  
+- route tables  
+- tagging standards  
+
+### **2. ECS Service Module**
+- task definitions  
+- autoscaling  
+- service mesh integration  
+- health checks  
+- logging + X‑Ray  
+- IAM least‑privilege roles  
+
+### **3. Lambda Module**
+- runtime configuration  
+- DLQ + retry policies  
+- IAM roles  
+- environment variable injection  
+- VPC attachment  
+
+### **4. Stream Infrastructure Module**
+- Kafka topics  
+- ACLs  
+- consumer groups  
+- retention policies  
+- encryption  
+
+### **5. Compliance Engine Module**
+- rule evaluation Lambda  
+- DynamoDB rule store  
+- S3 compliance logs  
+- CloudWatch dashboards  
+
+### **6. Governance Module**
+- tagging enforcement  
+- IAM boundary policies  
+- resource naming conventions  
+- mandatory CloudWatch alarms  
+
+**Do not create infrastructure manually.  
+Do not fork platform modules.  
+Always consume the official modules.**
+
+---
+
+# 🚀 CI/CD Workflow Patterns
+
+All services must use the standard ESP CI/CD workflow:
+
+### **Pipeline Stages**
+
+1. **Static Analysis**
+   - `golangci-lint`
+   - dependency vulnerability scan  
+   - PHI‑safe logging scan  
+
+2. **Unit Tests**
+   - coverage threshold enforced  
+   - mocks for external systems  
+
+3. **Schema Validation**
+   - producer schemas validated against registry  
+   - consumer schemas validated for compatibility  
+
+4. **Integration Tests**
+   - ingestion mock  
+   - compliance mock  
+   - replay simulation  
+
+5. **Security & Governance**
+   - OPA policy checks  
+   - Terraform plan validation  
+   - IAM least‑privilege scan  
+
+6. **Build + Artifact Publish**
+   - container image  
+   - SBOM  
+   - provenance metadata  
+
+7. **Deploy to Shared Services**
+   - ephemeral environment  
+   - smoke tests  
+   - rollback hooks  
+
+8. **Promote to Production**
+   - manual approval  
+   - compliance sign‑off  
+   - automated canary rollout  
+
+---
+
+# 🛡 Governance Patterns
+
+ESP enforces governance through:
+
+### **1. Tagging Standards**
+Every resource must include:
+
+- `app_name`  
+- `owner`  
+- `data_classification`  
+- `environment`  
+- `cost_center`  
+
+### **2. IAM Boundaries**
+All roles are constrained by:
+
+- least‑privilege policies  
+- PHI‑safe access boundaries  
+- no wildcard permissions  
+
+### **3. Compliance Enforcement**
+- PHI encryption required  
+- classification required  
+- compliance metadata required  
+- retention enforced automatically  
+
+### **4. Observability Baseline**
+Every service must emit:
+
+- structured logs  
+- metrics (latency, throughput, errors)  
+- traces  
+- health probes  
+
+### **5. Operational Readiness**
+No service enters production without:
+
+- dashboards  
+- alerts  
+- runbooks  
+- on‑call rotation  
+- replay impact analysis  
+
+---
+
+# Development Environment Setup
 
 ### **Prerequisites**
 
@@ -74,7 +274,7 @@ These tools allow developers to test producers and consumers without deploying t
 
 ---
 
-## Producer Onboarding
+# Producer Onboarding
 
 Producers are responsible for constructing valid events and submitting them to the ingestion API.
 
@@ -109,7 +309,7 @@ Producers are responsible for constructing valid events and submitting them to t
 
 ---
 
-## Consumer Onboarding
+# Consumer Onboarding
 
 Consumers read events from ESP streams and process them according to business logic.
 
@@ -142,7 +342,7 @@ Consumers read events from ESP streams and process them according to business lo
 
 ---
 
-## Event Schema Registration
+# Event Schema Registration
 
 All payload schemas must be registered in the ESP Schema Registry before production deployment.
 
@@ -166,7 +366,7 @@ All payload schemas must be registered in the ESP Schema Registry before product
 
 ---
 
-## Compliance Alignment for Developers
+# Compliance Alignment for Developers
 
 Compliance is not optional. Developers must understand:
 
@@ -192,7 +392,7 @@ All access is logged and retained for 7 years.
 
 ---
 
-## Testing & Validation
+# Testing & Validation
 
 ### **Local Testing**
 
@@ -226,7 +426,7 @@ Before deployment:
 
 ---
 
-## Operational Readiness
+# Operational Readiness
 
 Before a service is approved for production, it must pass the ESP Operational Readiness Review (ORR).
 
@@ -245,7 +445,7 @@ Before a service is approved for production, it must pass the ESP Operational Re
 
 ---
 
-## Common Pitfalls
+# Common Pitfalls
 
 New developers often encounter:
 
@@ -262,7 +462,7 @@ These issues are caught during onboarding reviews.
 
 ---
 
-## Support & Resources
+# Support & Resources
 
 ### **Slack Channels**
 
@@ -290,6 +490,6 @@ These issues are caught during onboarding reviews.
 
 ---
 
-## Summary
+# Summary
 
-This guide provides the foundational knowledge required for developers to build safe, compliant, and reliable integrations with the AcmeCo Event Stream Platform. By following the onboarding steps, validation workflows, and operational readiness requirements, developers ensure that all services meet AcmeCo’s security, compliance, and reliability standards.
+This guide provides the foundational knowledge required for developers to build safe, compliant, and reliable integrations with the AcmeCo Event Stream Platform. By following the onboarding steps, validation workflows, and operational readiness requirements—and by reusing platform‑as‑a‑product patterns—developers ensure that all services meet AcmeCo’s security, compliance, and reliability standards.

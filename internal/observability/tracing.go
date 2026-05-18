@@ -25,7 +25,7 @@ func InitTracing(serviceName, version, environment string) func(ctx context.Cont
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		// Default to ADOT sidecar OTLP gRPC
-		endpoint = "127.0.0.1:4317"
+		endpoint = "localhost:4317"
 	}
 	fmt.Printf("[OTEL] Using OTLP gRPC endpoint: %s\n", endpoint)
 

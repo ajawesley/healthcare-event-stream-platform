@@ -41,3 +41,12 @@ variable "tags" {
   description = "Common tags applied to all S3 buckets"
   type        = map(string)
 }
+
+variable "lambda_arn" {
+  type = string
+}
+
+variable "lambda_name" {
+  type = string
+}
+

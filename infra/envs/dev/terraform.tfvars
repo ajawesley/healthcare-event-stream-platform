@@ -19,8 +19,8 @@ compliance_db_username            = "ajawe"
 s3_output_base_path = "s3://hesp-dev-golden-events-001/golden-events/"
 s3_error_path       = "s3://hesp-dev-golden-events-001/errors/"
 
-glue_script_s3_path = "scripts/glue_job.py"
-glue_temp_dir       = "tmp/"
+glue_script_s3_path = "s3://hesp-dev-glue-scripts-001/scripts/glue_job.py"
+glue_temp_dir       = "s3://hesp-dev-glue-scripts-001/tmp/"
 
 lambda_zip_path = "../../../cmd/lambda/lambda.zip"
 

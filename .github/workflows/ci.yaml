@@ -23,8 +23,6 @@ jobs:
           aws-region: us-east-1
           audience: sts.amazonaws.com
 
-
-
       - name: Install Go
         uses: actions/setup-go@v5
         with:
@@ -63,12 +61,44 @@ jobs:
         env:
           TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
 
+      ############################################################
+      # Policy-as-Code Layer (OPA, Checkov, Sentinel)
+      ############################################################
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov (Terraform Security Scan)
+        working-directory: infra/envs/dev
+        run: checkov -d .
+
+      - name: Install Conftest (OPA)
+        run: |
+          wget https://github.com/open-policy-agent/conftest/releases/download/v0.52.0/conftest_0.52.0_Linux_x86_64.tar.gz
+          tar xzf conftest_0.52.0_Linux_x86_64.tar.gz
+          sudo mv conftest /usr/local/bin/
+
+      - name: Run OPA Conftest Policies
+        working-directory: infra/envs/dev
+        run: conftest test .
+
+      - name: Run Sentinel Policies
+        working-directory: infra/envs/dev
+        run: |
+          if [ -d "sentinel" ]; then
+            echo "Running Sentinel policies..."
+            sentinel apply -config=sentinel.hcl
+          else
+            echo "No Sentinel policies found. Skipping."
+          fi
+
+      ############################################################
+
       - name: Terraform Plan
         working-directory: infra/envs/dev
         run: terraform plan -no-color -out=tfplan || true
         env:
           TF_VAR_compliance_db_password: ${{ secrets.TF_VAR_compliance_db_password }}
-
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
